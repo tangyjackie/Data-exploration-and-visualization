@@ -1,0 +1,12 @@
+Source for the Yelp Dataset: business.json
+https://www.yelp.com/dataset
+
+Sources for the Yelp Data Exploration Project by Jackie Tang
+
+https://www.yelp.com/dataset/documentation/json
+http://r-statistics.co/Top50-Ggplot2-Visualizations-MasterList-R-Code.html
+http://adv-r.had.co.nz/Style.html
+https://www.rstudio.com/wp-content/uploads/2016/03/rmarkdown-cheatsheet-2.0.pdf
+https://datascienceplus.com/exploring-clustering-and-mapping-torontos-crimes/
+https://stackoverflow.com/questions/10646665/how-to-convert-r-markdown-to-html-i-e-what-does-knit-html-do-in-rstudio-0-9
+https://www.datacamp.com/community/tutorials/functions-in-r-a-tutorial
