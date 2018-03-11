@@ -1,0 +1,1562 @@
+---
+title: "Yelp Business Data Exploration"
+output: rmarkdown::github_document
+author: "Jackie Tang"
+---
+```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
+require(knitr) # required for knitting from rmd to md
+require(markdown) # required for md to html 
+knit('yelp_eda_project.rmd', 'yelp_eda_project.md') # creates md file
+markdownToHTML('yelp_eda_project.md', 'yelp_eda_project.html') # creates html file
+browseURL(paste('file://', file.path(getwd(),'yelp_eda_project.html'), sep='')) # open file in browser 
+```
+
+
+This report contains code, plots, maps and analyses that explore Yelp's academic data set on businesses covering over 150,000 Yelp-rated establishments across over 100 variables.
+
+# Univariate Plots Section
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+#Loads in packages we need for producing plots and data sets
+library(magrittr)
+library(ggplot2)
+library(maps)
+library(dplyr)
+
+library(ggmap)
+library(maptools)
+library(gridExtra)
+library(jsonlite)
+library(RColorBrewer)
+
+require(dplyr); require(RColorBrewer); require(ggplot2);
+require(maptools)
+
+yelp <- stream_in(file
+("C://Users//Jackie//Downloads//yelp_dataset//business.json"))
+
+yelp_flat <- flatten(yelp)
+
+#There are 156,639 observations in this dataset.
+nrow(yelp_flat)
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#There are 101 variables in this dataset.
+ncol(yelp_flat)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+#Summary of the distribution of values within each variable
+#summary(yelp_flat)
+
+```
+
+The goals of my exploratory analysis of the Yelp (academic) business data set will be as follows.
+
+1) Establish an understanding of three key variables: review count, price range and stars (ratings)
+2) Understand and visualize how geography, operating status (open or closed), alcohol service and noise levels can end up affecting the three key variables explored in this data set: review count, price range and stars
+3) Perform the analysis as explained in 1) and 2) on particular segments of Yelp establishments (such as operating restaurants in North America)
+
+
+In the univariate plots section, the emphasis will be on analysing some of the key variables that will be discussed later in the bivariate and multivariate analysis such as price range, stars, and review count along with other variables such as the geographic dispersion of establishments as well as some information on alcohol service and noise levels.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+#Univariate plots section
+
+
+#Function below is to group establishments based on stars across all geographies
+#Then it sums establishments according to each star level and calculates a percent of total establishments
+yelp_stars <- function(dataset, title1) {
+yelpstar <- dataset%>%
+group_by(stars) %>%
+summarise(total_by_star = n()) %>%
+mutate(total = sum(total_by_star)) %>% 
+mutate(percent = round((total_by_star / total)*100, 1))
+
+
+#Below is a univariate plot showing the distribution of stars across all establishments
+ggplot(yelpstar, aes(x = stars, y = percent)) + 
+geom_bar(stat = "identity", fill = 'lightblue') + labs(x='Stars (ratings)') +
+  labs( y = 'Percent of total ratings') +labs(title =  title1) + 
+  scale_x_continuous(breaks = seq(1, 5, 0.5)) +
+  scale_y_continuous(lim = c(0, 25))+
+  theme(plot.title = element_text(hjust = 0.5))  +
+ geom_text(aes(label=percent), position = position_dodge(width = 1), 
+           vjust = -0.5, size = 4) 
+}
+
+yelp_stars(yelp_flat, 'Distribution of Yelp stars across all establishments')
+
+```
+
+One of the first things that I want to do to start my analysis is to look at stars (ratings) across all establishments.
+
+From the histogram below, it seems that most ratings are centred around 3.5 to 4 stars, which seems quite consistent with my prior knowledge of Yelp reviews. Generally, people tend to give fairly good reviews!
+
+Of course, the histogram includes both open and closed establishments, and we know that generally speaking establishments that have closed may have closed due to poor business, partly because of poor reviews and opinions of the establishment. What if we only accounted for establishments that were closed and no longer operating? Would this distribution change?
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#Code below is to group establishments based on stars across all geographies
+
+yelp_open <- subset(yelp_flat, is_open == 0)
+
+yelp_stars(yelp_open, 'Distribution of Yelp stars across closed establishments')
+```
+
+As we can see from the histogram showing the distribution of stars across closed establishments, the distribution in the lower ends do not change much. However, we can see that there is a substantial decline in the proportion of closed establishments that were rated 4.5 and 5 stars. This is definitely a plausible explanation as establishments that are rated highly generally do not close without good reason.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#I only include these states, because I am solely interested in analyzing North America (at least when categorizing by state, though there are some analyses which may include all establishments in general), and not in states in Germany or any other territory. After having gone through the list of states represented in the data set, only the states below represented those of North America
+
+
+yelp_flat1 <- subset(yelp_flat, yelp_flat$state == 'AZ' | 
+  yelp_flat$state == 'WI' | yelp_flat$state == 'NC' | 
+  yelp_flat$state == 'NV' | yelp_flat$state == 'OH' | 
+  yelp_flat$state == 'ON' | yelp_flat$state == 'PA' | 
+  yelp_flat$state == 'QC' | yelp_flat$state == 'SC' )
+
+#Function below creates a histogram of the number of establishments by a geographic entity
+#First it groups the dataset by var1 representing the geography and creates and sums the number 
+#of establishments
+estab_count <- function(dataset, var1, i, titlename, colour1) {
+  var1 <- enquo(var1)
+  count_state_reviews <- dataset %>%
+  group_by(!!var1)%>%
+  summarise(n=n())
+
+#Plot the number of establishments rated on Yelp by state (in descending order)
+ggplot(count_state_reviews, aes(reorder(state, -n), n)) + 
+geom_bar(stat = "identity", fill = colour1) + labs(x='state') + 
+  scale_y_continuous(lim = c(0, i)) + 
+  labs(y = "Number of establishments") + 
+  labs(title= titlename) + 
+  theme(plot.title = element_text(hjust = 0.5))
+}
+estab_count(yelp_flat1, state, 50000, 
+            "Number of establishments by state", "darkgreen")
+
+```
+
+This Yelp data set does not seem to have an equal representation of the number of establishments by geography especially when we account for the differences in population.
+The majority of establishments in this data set are in Arizona, Ontario and Nevada, with smaller numbers of representation in other states such as North Carolina, Ohio and Quebec. However, Arizona has a population of almost 7 million which is half of Ontario's population of 14 million, yet has twice the number of establishments being represented. Further, there are only 9 North American states covered in the data set, but there are more than 50 states in the United States and more than 10 within Canada.
+
+In any case, the analysis for review count and stars is far from complete, however, we will revisit these two variables in greater detail in later sections.
+
+For now, let us concentrate on looking at my favourite part of Yelp ratings, which are restaurants!
+In the following sections and analysis, I will concentrate almost exclusively on operating restaurants located within North America.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+#This is subsetted only for operating restaurants in North American states, establishments are restaurants when price range, take out, delivery and table service attributes are non-null.
+
+rest_0 <- subset(yelp_flat1, is_open == 1 & !is.na(attributes.RestaurantsPriceRange2) & !is.na(attributes.RestaurantsTakeOut) & !is.na(attributes.RestaurantsDelivery) & !is.na(attributes.RestaurantsTableService))
+
+nrow(rest_0)
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+nrow(yelp_flat1)
+
+```
+
+When we partition only for North American restaurants that are operating in this Yelp data set, we find that the number is only 26,642. Out of 156,639 establishments, my area of interest only represents approximately 17% of all establishments. When we partition only for North American states which have a total of 147,658 establishments, this percentage goes up only slightly to 18% (the number of establishments outside North America are minimal). 
+
+This is obviously because there are many other such establishments such as nail salons, amusement parks, community centres, spas, along with closed restaurants or restaurants outside of North America that are not included in my analysis.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+
+#Plot the number of operating restaurants rated on Yelp by state (in descending order) by calling function estab_count earlier which creates a plot of the number of establishments by state
+
+
+estab_count(rest_0, state, 8000, 
+            "Number of operating restaurants by state", "purple")
+
+```
+
+As we saw earlier, while there were large variances in the number of establishments in the data set by state, in terms of operating restaurants, there seems more of an even spread out across states with less of a heavy emphasis on Nevada and Arizona.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#Although WI and SC are also represented in the North American states in the Yelp data set, I exclude the cities of Fort Mill, SC due to its lack of information
+
+yelp_flat2 <- subset(yelp_flat, yelp_flat$city == "Cleveland" | 
+  yelp_flat$city == "Charlotte" | yelp_flat$city == "Las Vegas" | 
+  yelp_flat$city == "Mesa" | yelp_flat$city == "Mesa" | 
+  yelp_flat$city == "Montréal" | yelp_flat$city == "Phoenix" | 
+  yelp_flat$city == "Pittsburgh" | yelp_flat$city == "Tempe" | 
+  yelp_flat$city == "Toronto" | yelp_flat$city == "Scottsdale" | 
+  yelp_flat$city == "Madison" )
+
+#This partitions the data set further by only including restaurants that are open for these cities
+rest_city <- subset(yelp_flat2, is_open == 1 & 
+  !is.na(attributes.RestaurantsPriceRange2) & 
+  !is.na(attributes.RestaurantsTakeOut) & 
+  !is.na(attributes.RestaurantsDelivery) & 
+  !is.na(attributes.RestaurantsTableService))
+
+#This calculates the number of operating restaurants in major North American cities in the data set
+
+rest_city_count <- rest_city %>%
+group_by(city)%>%
+summarise(n = n())
+
+#Plot the number of operating restaurants rated on Yelp by state (in descending order)
+ggplot(rest_city_count, aes(reorder(city, -n), n)) + 
+  geom_bar(stat = "identity", fill = 'purple') + labs(x='city') + 
+  scale_y_continuous(lim = c(0, 5000)) + 
+  labs(y = "Number of operating restaurants") + 
+  labs(title= "Number of operating restaurants by city") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+The plot below shows the top 10 or so cities that were selected for my data analysis, and this was due to the fact that they had the most establishments. Not surprisingly, all the cities above are the largest cities in the states that were in the plot earlier. With the exception of the Phoenix metropolitan area, which covers the cities of Phoenix, Mesa, Scottsdale and Tempe, all the other cities are the only cities that are covered in my analysis within that state.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#In my analysis, I noticed that there were entries that had price range values despite being not a restaurant (ex. a nail salon), and so the query below filters for take out, delivery, and table service values not being null in addition to restaurant price range values not being null.
+
+
+rest_prices <- rest_0 %>%
+group_by(attributes.RestaurantsPriceRange2) %>%
+summarise(n = n()) %>%
+mutate(total = sum(n)) %>% 
+mutate(percent = round((n / total)*100, 1)) 
+
+
+ggplot(rest_prices, aes(x = attributes.RestaurantsPriceRange2, y = percent)) + 
+  geom_bar(stat = "identity", fill = 'orange', width = 0.6) + 
+  labs(x='Price Range') +labs( y = 'Percent of total number of restaurants') +
+  labs(title = 'Distribution of restaurants across price ranges') + 
+  scale_x_continuous(breaks = seq(1, 4, 1)) + 
+  theme(plot.title = element_text(hjust = 0.5))  +
+  geom_text(aes(label=percent), position = position_dodge(width = 1),
+  vjust = -0.5, size = 4) + scale_y_continuous(lim = c(0, 60))
+
+```
+
+To start our univariate analysis on restaurants, let us look at the price range across all restaurants. 
+
+As we can see from the plot below, the vast majority of restaurants are in the 1-2 low to medium price range, while only a very small proportion (around 5-6 percent) are what we would consider to be the more high-end and expensive type of restaurant (in the 3-4 price range). This sort of makes sense because places such as McDonalds and KFC are factored into the restaurant category as well, and by far the vast majority of restaurants are of the fast-food and take-out variety.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#similar to previous functions, but this one ensures that the alcohol variable is not NA
+rest_1 <- subset(rest_0, !is.na(attributes.RestaurantsPriceRange2) &
+  is_open == 1 &
+  !is.na(attributes.RestaurantsTakeOut) & 
+  !is.na(attributes.RestaurantsDelivery) & 
+  !is.na(attributes.RestaurantsTableService) & !is.na(attributes.Alcohol))
+
+
+rest_fn <- function (dataset, dataset1, var1) {
+var1 <- enquo(var1) 
+rest_alco <- dataset %>%
+group_by(!!var1) %>%
+summarise(n = n()) %>%
+mutate(total = sum(n)) %>% 
+mutate(percent = round((n/ total)*100, 1)) 
+
+
+ggplot(rest_alco, aes(x = attributes.Alcohol, y = percent) ) + 
+  geom_bar(stat = "identity", fill = 'purple', width = 0.6) + 
+  labs(x='Alcohol service') + 
+  labs( y = 'Percent of total number of restaurants') +
+  labs(title = 'Alcohol service levels in operating restaurants') + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  geom_text(aes(label=percent), position = position_dodge(width = 1),
+  vjust = -0.5, size = 4) + scale_y_continuous(lim = c(0, 100))
+}
+
+rest_fn(rest_1, rest_alco, attributes.Alcohol)
+
+```
+
+In terms of alcohol service levels in restaurants, we find that its about 50/50. Around half of restaurants (51.3%) will actually serve alcohol of some sort with 15% serving only beer and wine while over 35% will have a full bar. 
+Of course, having alcohol in a restaurant is great, but do alcohol service levels differ amongst different categories of restaurants? The factor that differentiates restaurants the most would probably be the price range. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+rest_alco_all <- rest_1%>%
+group_by(attributes.RestaurantsPriceRange2, attributes.Alcohol) %>%
+summarise(n = n()) %>%
+mutate(total = sum(n)) %>% 
+mutate(percent = round((n/ total)*100, 1)) 
+
+ggplot(rest_alco_all, aes(x = attributes.Alcohol, y = percent)) + 
+  geom_bar(stat = "identity", fill = 'purple', width = 0.6) + 
+  labs(x='Alcohol service') +
+  labs(y = 'Percent of total number of restaurants') +
+  labs(title = 'Alcohol service levels in restaurants across price ranges') + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  geom_text(aes(label=percent), position = position_dodge(width = 1),
+  vjust = -0.5, size = 4) + scale_y_continuous(lim = c(0, 100)) + 
+  facet_grid(. ~ attributes.RestaurantsPriceRange2) + 
+  scale_x_discrete(labels = c("beer & wine    ", "   full bar", "none")) 
+
+```
+
+Alcohol is generally not served in the least expensive restaurants, while those in the price category 2 (average) offer alcohol service at around a 75% rate, and those in in the most expensive restaurants almost all serve alcohol. It is a bit surpising, however, that the percentage of those that offer full bar declines slightly in the highest price range of restaurants.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#Similar to rest_0 and rest_1, except that dataset only ensures that noise level data is not NA 
+rest_2 <- subset(yelp_flat1, !is.na(attributes.RestaurantsPriceRange2) & 
+  is_open == 1 &
+  !is.na(attributes.RestaurantsTakeOut) & 
+  !is.na(attributes.RestaurantsDelivery) & 
+  !is.na(attributes.RestaurantsTableService) & 
+  !is.na(attributes.NoiseLevel))
+
+
+rest_noise <- rest_2 %>%
+group_by(attributes.NoiseLevel) %>%
+summarise(n = n()) %>%
+mutate(total = sum(n)) %>% 
+mutate(percent = round((n/ total)*100, 1)) 
+
+ggplot(rest_noise, aes(x = attributes.NoiseLevel, y = percent)) + 
+  geom_bar(stat = "identity", fill = 'grey', width = 0.6) + 
+  labs(x='Noise level') +labs( y = 'Percent of total number of restaurants') + 
+  labs(title = 'Noise levels in operating restaurants') + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_y_continuous(lim = c(0, 100)) +
+  geom_text(aes(label=percent), position = position_dodge(width = 1),
+  vjust = -0.5, size = 4)
+```
+
+Of course, an introductory exploratory analysis of Yelp-rated restaurants would not be complete without at least knowing some information on the noise levels of the restaurant. Most restaurants, about two-thirds, had average noise levels, while over 20% are quiet. Only a small minority (around 10%) of restaurants are classified as being in the loud or very loud range.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#Parse data to obtain review_count by city or state
+
+n_reviews1 <- yelp_flat1 %>%
+group_by(state, review_count) %>%
+summarise(total_sum = sum(review_count))%>%
+arrange(desc(review_count)) %>%
+summarise(total_reviews = sum(total_sum)) %>%
+arrange(desc(total_reviews))
+
+#Plot the number of reviews by state (limit to top 10 states)
+ggplot(n_reviews1, aes(reorder(state, -total_reviews), total_reviews)) + 
+  geom_bar(stat = "identity", fill = 'darkblue') + labs(x='state') +  
+  labs(x='state') +labs( y = 'Number of reviews') +
+  labs(title = 'Distribution of review count across states') + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+# Univariate Analysis
+
+### What is the structure of the data set?
+There are 156639 data points in the Yelp academic data set, and includes Yelp-rated establishments across a variety of different geographies that are mainly based in North America.
+There are 101 variables in the data set and only a few of them were analyzed in my univariate analysis.
+In the univariate analysis, these include the noise level, alcohol service, price range, stars, and review count.
+
+Aside from review_count which is an integer variable, all other variables follow are categorical in nature:
+
+stars <- 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5, 5   
+price range <- 1, 2, 3, 4    
+alcohol service <- none, beer_and_wine, full_bar   
+noise level <- quiet, average, loud, very_loud    
+attire <- casual, formal, dressy
+
+The binary (yes/no) variables examined are: 
+is open, delivery, takeout, good for dinner, table service
+
+Geographical information such as longitude is expressed between -180 and 180 degrees, while latitude is expressed between -90 and 90 degrees.
+
+
+### Interesting observations: 
+1) Average number of reviews per establishment is around 30
+2) Close to half of ratings are in the 3.5 to 4 stars range
+3) Alcohol service is provided in over 50% of restaurants
+4) Almost all restaurants are in the 1-2 price range (inexpensive to average)
+5) Most restaurants have quiet to average noise levels
+6) The sample of establishments provided in the data set are mostly in Arizona, Nevada and Ontario
+
+
+### What is/are the main feature(s) of interest in your dataset?
+The main features of interest in this data set are review count, price range and stars.
+
+
+### What other features in the dataset do you think will help support your investigation into your feature(s) of interest?
+
+Alcohol servoce, noise level, geographical features such as longitude and latitude along with state, is_open, as well as numerous restaurant attributes such as table service, delivery, takeout, attire, if its good for lunch, dinner, dessert etc. would be good features that would complement the analysis on stars, price range and review count.
+
+
+### Did you create any new variables from existing variables in the dataset?
+
+A new variable called full_service was created for the purposes of my analysis (later used in the bivariate analysis section),  which is a categorical variable that combines table service, delivery and takeout services all being offered or not. Its value is 1 when table service, delivery and takeout services are provided at the restaurant, and 0 if even one of these services is not offered. The rationale behind creating this variable was to see the percentage of restaurants that were able to respond to all sorts of dining options. There were other variables such as catering, but it was not included as it may have been too restrictive.
+
+I also created a new variable called "value" which is defined as Yelp stars divided by price range, which measures the amount of value that you obtain in terms of an experience at an establishment that for each dollar that you spend. A lower price range and a higher Yelp star rating means a higher value, while conversely, a higher price range and lower Yelp star rating equates a lower value.
+
+
+### Of the features you investigated, were there any unusual distributions? Did you perform any operations on the data to tidy, adjust, or change the form of the data? If so, why did you do this?
+
+There were many cases where null values existed for the restaurant variables and so these values were not included in order to get an approximation of what was only considered to be a restaurant. This prevents including supermarkets or medical clinics or even amusement parks that might have some food services available but are not restaurants on its own. Also, the data has also been subsetted to only account for values in certain states that were operating depending on the analysis. Upon examining the univariate plots, I did not examine any unusual distributions.
+
+
+
+# Bivariate Plots Section
+
+The number of reviews (review_count) is a very important variable in the Yelp data set. In fact, it is the only variable that is not discrete or categorical other than latitude and longitude, and can be analyzed along a variety of different categorical variables. 
+
+As it appears, the review count numbers seem undoubtedly biased towards Nevada and Arizona as shown from the plot below. This sort of makes sense as we saw earlier that the number of establishments were also somewhat biased towards Nevada, Arizona and Ontario. What is odd is that even though NV and ON had a similar number of establishments in this dataset, the number of reviews is substantially higher for NV than it is for ON.
+
+One of the things that I now want to look at is the distribution of review_count by establishment, and to compute the means across each of the states shown above. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+n_reviews2 <- head(n_reviews1, n=10)
+n_reviews2
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+ggplot(yelp_flat1, aes(x = state, y = review_count)) + geom_boxplot() + 
+  labs(title = "Dispersion of review count across states") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  labs( y = 'Number of reviews')
+
+```
+
+At first glance, it seems that are certainly a large number of establishments in Nevada that have an extremely high review count, though the mean number of reviews per establishment is actually only around 30 across the entire data set.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+ggplot(yelp_flat1, aes(x = state, y = review_count)) + geom_boxplot() + 
+  labs(title = "Dispersion of review counts across states") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  labs( y = 'Number of reviews') + coord_cartesian(ylim=c(0, 70))
+```
+
+Zooming closer into the box plot, we see that median across all states is somewhere between 7 to 12 reviews, which means that a sizable proportion of Yelp-rated establishments have few to no ratings.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+avg_state_reviews <- yelp_flat1%>%
+group_by(state)%>%
+summarise(review_count_mean = mean(review_count)) %>%
+arrange(desc(review_count_mean))
+avg_state_reviews 
+
+
+```
+
+Due to the large number of establishments that have a review count in the thousands, this skews the mean upward considerably such that the mean ends up being double to quadruple the median for each state.
+
+When compared across states, it turns out that the average across each state in terms of the review count per establishment is actually quite different with Nevada having a substantially higher review count than other states. This explains why even though the number of Yelp-rated establishments in Ontario and Nevada are roughly equal, the review_count variable was so much higher for Nevada than for Ontario.
+
+
+Now, moving on from the review count, what about the relationship between price range and stars for restaurants?
+
+And how does this vary with noise levels?
+Do more expensive places that are quieter have higher ratings?
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+
+#Code groups by noise levels based on average Yelp stars, this allows us to analyze how average ratings change as noise levels increase
+
+rest_noise <- rest_2 %>%
+group_by(attributes.NoiseLevel) %>%
+summarise(n=mean(stars))
+
+#New factors written in so that plot can be created from lowest to the loudest level of noise
+rest_noise$attributes.NoiseLevel <- factor(rest_noise$attributes.NoiseLevel, 
+  levels=c("quiet", "average", "loud", "very_loud"))
+
+#Decided not to use line plot due to review suggestions
+#ggplot(aes(x = attributes.NoiseLevel, y = n, group = 1), data = rest_noise) + 
+#  geom_line(size = 2) + geom_point(size = 4, colour = "darkblue") + 
+#  labs(title = "Relationship between noise level and ratings in restaurants") + 
+#  labs(x = "Noise level") + labs(y= "Rating (in stars)") + 
+#  theme(plot.title = element_text(hjust = 0.5))  
+
+#Use lollipop plot instead of line chart to show decline in ratings across noise levels.
+#Used lollipop plot instead of bar plot, because it better shows relationship across noise levels than bar plot
+#Also increases variety of visualizations being used
+ggplot(rest_noise, aes(x = attributes.NoiseLevel, y = n)) + 
+  geom_point(size=8, colour = "#fec44f") + 
+  geom_segment(aes(x = attributes.NoiseLevel , 
+                   xend = attributes.NoiseLevel, 
+                   y=0, 
+                   yend= n), colour = "#e6550d") +
+  coord_cartesian(ylim=c(2.5, 4)) +
+  labs(title = "Relationship between noise level and Yelp stars in restaurants") + 
+  labs(x = "Noise level") + labs(y= "Rating (in stars)") + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+```
+
+Earlier in the univiarate analysis section, we found that most restaurants were of average and quiet noise levels.
+But why might this be the case? The line plot below shows that there certainly is a ratings premium to having a quiet restaurant as restaurants that were quieter had higher average ratings in general. For example, quiet restaurants had above 3.6 average rating, while very loud restaurants had less than 3.0 average rating.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+noise_stars <- lm(stars ~ attributes.NoiseLevel, data = subset(rest_2))
+
+summary(noise_stars)
+
+```
+
+Although increased noise levels are correlated with decreased Yelp stars for a restaurant, the degree of variance explained from the R-squared is only about 3%, meaning that noise levels only explain a very small proportion of the ratings given to a restaurant. There are most certainly other factors that would most likely influence the number of stars given.
+
+But what else might also impact the number of stars that a Yelp-rated restaurant, could price range be one of them?
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#Again, group by price range and calculate average number of stars
+rest_star_price <- rest_2 %>%
+group_by(attributes.RestaurantsPriceRange2) %>%
+summarise(n = mean(stars))
+
+#Line plot not used as per reviewer's suggestions
+#ggplot(aes(x = attributes.RestaurantsPriceRange2, y = n, group = 1), 
+#  data = rest_star_price) + geom_line(size = 2) + 
+#  geom_point(size = 4, colour = "darkblue") + 
+#  labs(title = "Relationship between price range and Yelp stars in restaurants") + 
+#  labs(x = "Price Range") + labs(y= "Rating (in stars)")+ 
+#  theme(plot.title = element_text(hjust = 0.5)) 
+
+
+ggplot(rest_star_price, aes(x = attributes.RestaurantsPriceRange2, y = n)) + 
+  geom_point(size=8, colour = "#756bb1") + 
+  geom_segment(aes(x = attributes.RestaurantsPriceRange2 , 
+                   xend = attributes.RestaurantsPriceRange2, 
+                   y=0, 
+                   yend= n), colour = "#e6550d") +
+  coord_cartesian(ylim=c(2.5, 4)) +
+  labs(title = "Relationship between price range and Yelp stars in restaurants") + 
+  labs(x = "Price Range") + labs(y= "Ratings (in stars)") + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+
+```
+
+It turns out that as the price range for a restaurant increases, the Yelp stars given also tend to be higher, ranging from around 3.4 stars at a price range of 1 and around 3.75 at a price range of 4. 
+
+However, doing a quick regression shows that the amount of variance explained by this model is very much insufficient for explaining how many stars a restaurant gets. Although the results in the regression below show statistical significance, this is most likely because there is only one independent variable (as was in the previous case with noise levels). 
+In addition, the amount of variance explained by price range is even less than for noise levels.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+price_stars <- lm(stars ~ attributes.RestaurantsPriceRange2, 
+  data = subset(rest_2))
+summary(price_stars)
+
+```
+
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#Calculate percentage of restaurants by price range
+
+restaurant_price_range <- rest_0 %>%
+group_by(state, attributes.RestaurantsPriceRange2) %>%
+summarise(n=n())%>%
+mutate(total = sum(n)) %>%
+mutate(percent = round((n/ total)*100, 1))
+
+ggplot(data = restaurant_price_range, aes(x = state, y = percent, 
+  fill=factor(attributes.RestaurantsPriceRange2))) + 
+  geom_bar(stat = "identity", width = 0.5) +
+  scale_fill_discrete(name="Price\nRange\n$-$$$$") +
+  scale_colour_brewer() +
+  labs(title = "Percentage of restaurants by price range")+ 
+  theme(plot.title = element_text(hjust = 0.5))  
+```
+
+Looking at the price range again, we can also see that the distribution of price ranges across different geographies vary quite a bit. In the province of Quebec, there is a much higher proportion of restaurants in the more expensive 3-4 categories, and with a substantially lower percentage of restaurants in the less expensive price range 1. 
+This is in stark contrast to AZ (Arizona), NC (North Carolina) and SC (SOuth Carolina) where less expensive ($) restaurants are dominant, and more expensive restaurants are almost non-existent.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+avg1 <- function(dataset, var1, var2) {
+var1 <- enquo(var1)
+var2 <- enquo(var2)
+  
+avg1  <- dataset %>%
+group_by(!!var1) %>%
+summarise(average = mean(!!var2))%>%
+arrange(desc(average))
+avg1
+}
+avg1(rest_0, state, attributes.RestaurantsPriceRange2)
+
+```
+
+And of course printing out the average price range by state, we see that Quebec and Ontario have a much higher average price range compared to the other states in the data set.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#This calculates the average price range in major North American cities in the data set
+
+rest_city_price <- rest_city %>%
+group_by(city)%>%
+summarise(n = mean(attributes.RestaurantsPriceRange2))
+
+#compute normalized prices
+rest_city_price$price <- round((rest_city_price$n - 
+  mean(rest_city_price$n)) / sd(rest_city_price$n), 2)
+  rest_city_price$price_type <- ifelse(rest_city_price$price < 0, 
+                                  "below", "above")
+
+# This will create our diverging barchart which compares the normalized average price range across cities
+ggplot(rest_city_price, aes(reorder(city, -price), price), label=price_type) + 
+  geom_bar(stat='identity', aes(fill=price_type), width=.5)  +
+  scale_fill_manual(name="Prices", 
+                    labels = c("Above Average", "Below Average"), 
+                    values = c("above"="#00ba38", "below"="#f8766d")) + 
+  labs(subtitle="Normalised prices for operating restaurants", 
+       title= "Comparison of prices across major North American cities") +
+  labs(x="city") + coord_flip()
+
+```
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Call function to print out average price ranges across all North American cities in data set
+avg1(rest_city, city, attributes.RestaurantsPriceRange2)
+```
+
+When we look at a comparison of price ranges across cities, the fact that Montreal and Toronto have the highest price ranges roughly coincides with our findings earlier in which Quebec and Ontario (where Montreal and Toronto are located respectively) had the highest priced restaurants compared to American states. 
+
+One notable exception is Scottsdale in Arizona which had much higher prices than its surrounding municipalities of Phoenix, Tempe and Mesa.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+rest_city_stars <- rest_city %>%
+group_by(city)%>%
+summarise(n = mean(stars))
+
+#compute normalized stars
+rest_city_stars$stars <- round((rest_city_stars$n - 
+  mean(rest_city_stars$n))/ sd(rest_city_stars$n), 2)
+rest_city_stars$stars_type <- ifelse(rest_city_stars$stars < 0, 
+                                     "below", "above")
+
+# This will create our diverging barchart which compares the normalized average stars across cities
+ggplot(rest_city_stars, aes(reorder(city, -stars), stars), 
+       label=stars_type) + 
+  geom_bar(stat='identity', aes(fill=stars_type), width=.5)  +
+  scale_fill_manual(name="Stars", 
+                    labels = c("Above Average", "Below Average"), 
+                    values = c("above"="#00ba38", "below"="#f8766d")) + 
+  labs(subtitle=
+         "Normalised Yelp stars (ratings) for North American restaurants", 
+       title= "Comparison of Yelp stars across major North American cities") + 
+  labs(x="city") +
+  coord_flip()
+
+
+```
+
+It seems that although the price range of restaurants for Scottsdale and Montreal are quite high, this is matched by the fact that the Yelp stars for restaurants in these cities are also relatively higher compared to other cities as well. So perhaps paying a little more for your food might not be a bad idea!
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Use the function above to calculate the average stars by city in data set
+avg1(rest_city, city, stars)
+
+```
+
+Of course, I decided to see go a little further and see what the "value" was for restaurants across different cities. I define value as being the number of stars divided by the average price range. What this calculates is the the amount of value added that you obtain for what you eat and pay for at a restaurant. For example, a city with restaurants that have a higher average number of stars or a lower price range will deliver more value for your dollar than those that have lower number of stars or a higher price range.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+#Code for calculating a diverging bar plot of price to stars ratio, this determines the value of a restaurant, as in bang for your buck
+
+rest_city$value <-   rest_city$stars/rest_city$attributes.RestaurantsPriceRange2
+
+rest_city_value <- rest_city %>%
+group_by(city)%>%
+summarise(n = mean(value))
+
+#compute normalized prices
+rest_city_value$value <- round((rest_city_value$n - 
+  mean(rest_city_value$n))/ sd(rest_city_value$n), 2)
+rest_city_value$value_type <- ifelse(rest_city_value$value < 0, 
+                                     "below", "above")
+
+# This will create our diverging barchart which compares the normalized value across cities
+ggplot(rest_city_value, aes(reorder(city, -value), value), label=value_type) + 
+  geom_bar(stat='identity', aes(fill=value_type), width=.5)  +
+  scale_fill_manual(name="value", 
+                    labels = c("Above Average", "Below Average"), 
+                    values = c("above"="#00ba38", "below"="#f8766d")) + 
+  labs(subtitle="Normalised Yelp value (ratings) for North American cities", 
+       title= 
+         "Comparison of restaurant value across major North American cities") + 
+  labs(x="city") +
+  coord_flip()
+
+
+
+```
+
+We find that the cities of the Phoenix metropolitan area such as Phoenix, Mesa, and Tempe to be above average in terms of delivering value for the customer, while cities such as Toronto and Montreal in Canada along with Scottsdale do not deliver as much value for the same amount of money being spent.
+
+While we are on the topic of price and restaurants, I want to explore a bit and look at a new variable called attire and see if the percentage of those expensive 3-4 restaurants line up with the percentage of restaurants where more formal attire is needed.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#Next plot is for casual vs. formal vs. dressy across states and cities for restaurants.
+#Data only includes operating establishments in North American states where the attire value is known
+restaurant_dress <- subset(yelp_flat1, !is.na(attributes.RestaurantsAttire) & !is.na(attributes.RestaurantsPriceRange2) & is_open == 1 & !is.na(attributes.RestaurantsTakeOut) & !is.na(attributes.RestaurantsDelivery) & !is.na(attributes.RestaurantsTableService) & !is.na(attributes.NoiseLevel))
+
+
+#Calling the same function used to output the datasets using the variable attributes.RestaurantsAttire instead of price range
+restaurant_fn2(restaurant_dress, restaurant_attire, state, attributes.RestaurantsAttire)
+
+
+ggplot(data = restaurant_attire, aes(x = state, y = percent, fill=attributes.RestaurantsAttire)) + geom_bar(stat = "identity", width = 0.5) +
+scale_fill_discrete(name="Attire", labels=c("Casual", "Dressy", "Formal")) + labs(title = "Percentage of restaurants by attire")  + theme(plot.title = element_text(hjust = 0.5))  
+
+
+```
+
+In fact, we see that the percentage of dressy and formal attire does sort of line up with the percentage of expensive (category 3-4) restaurants that we saw in the stacked bar plot earlier. In fact, the percentage of dressy restaurants actually exceeds those in the price category of 4, so it could be the case that there are some of those more expensive restaurants in the 3 price range that may want people to come in with a dressy attire. That being said, the percentage of restaurants requiring formal attire is almost non-existent across any North American state.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+attire_price <- lm(attributes.RestaurantsPriceRange2 ~ attributes.RestaurantsAttire, data = subset(restaurant_dress))
+summary(attire_price)
+
+
+```
+
+Relative to casual attire, dressy and formal attire positively predicted whether or not a restaurants price range was more expensive or not. Perhaps due to the lack of restaurants requiring formal attire, the impact of dressy attire on predicting a restaurants price range was greater than for formal attire. In this case, the regression can be predicted as such that dressy attire is generally 1.6 higher (relative to casual) in terms of price range on average (out of 4), while the price range is only 0.6 higher for formal attire (relative to casual).
+It is also of interest that 15% of variance in terms of predicing price range is explained by attire on its own.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#Create a new variable called full_service that represents that a restaurant does takeout, delivery and table service (essentially a dine-in restaurant)
+
+rest_0$Delivery_service <- ifelse(rest_0$attributes.RestaurantsDelivery == 1, 
+  TRUE, FALSE)
+rest_0$Takeout_service <- ifelse(rest_0$attributes.RestaurantsTakeOut == 1, 
+  TRUE, FALSE)
+rest_0$Table_service <- ifelse(rest_0$attributes.RestaurantsTableService == 1, 
+  TRUE, FALSE)
+
+rest_0$Full_service <-  ifelse( rest_0$attributes.RestaurantsTableService == 1 &
+  rest_0$attributes.RestaurantsTakeOut == 1 &
+  rest_0$attributes.RestaurantsDelivery ==1, TRUE, FALSE)
+
+#Another question to answer, is percentage of restaurants of total number of establishments in each state
+#The code below calculates the percentage of "full-service" restaurants as a percentage of total open restaurants on Yelp
+
+rest_service <- rest_0 %>%
+group_by(state, Full_service)%>%
+summarise(n=n())%>%
+mutate(total = sum(n)) %>%
+mutate(percent = round((n/ total)*100, 1))
+
+
+ggplot(data = rest_service, aes(x = state, y = percent, fill= Full_service)) +
+  geom_bar(stat = "identity", width = 0.5) + 
+  scale_fill_discrete(name="Full service", 
+  labels=c("No full service", "Full service")) + 
+  labs(title = "Percentage of restaurants by full service") + 
+  theme(plot.title = element_text(hjust = 0.5))  
+
+
+
+```
+
+Let us look at little bit further into dining options at a restaurant. A good restaurant should always provide a large variety of dining options, and so I have constructed a variable called "Full_service" that has a value of 1 whenever delivery, takeout and table services are all provided, and 0 whenever even one of these services were not provided.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 10}
+
+rest_service1 <<- rest_0 %>%
+group_by(state, Delivery_service)%>%
+summarise(n=n())%>%
+mutate(total = sum(n)) %>%
+mutate(percent = round((n/ total)*100, 1)) 
+
+rs1 <- ggplot(data = rest_service1, aes(x = state, y = percent, 
+  fill= Delivery_service)) + geom_bar(stat = "identity", width = 0.5) + 
+  scale_fill_discrete(name="Delivery service", 
+  labels=c("No delivery service", "Delivery service")) + 
+  labs(title = "% Delivery service") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(legend.position="none") + labs(y = NULL)
+
+rest_service2 <<- rest_0 %>%
+group_by(state, Table_service)%>%
+summarise(n=n())%>%
+mutate(total = sum(n)) %>%
+mutate(percent = round((n / total)*100, 1)) 
+
+rs2 <- ggplot(data = rest_service2, 
+  aes(x = state, y = percent, fill= Table_service)) + 
+  geom_bar(stat = "identity", width = 0.5) + 
+  scale_fill_discrete(name="Table service", 
+  labels=c("No table service", "Table service")) + 
+  labs(title = "% Table service") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(legend.position="none") +  theme( axis.ticks.y=element_blank()) +  
+  theme( axis.text.y=element_blank())  + labs(y = NULL)
+
+rest_service3 <<- rest_0 %>%
+group_by(state, Takeout_service)%>%
+summarise(n=n())%>%
+mutate(total = sum(n)) %>%
+mutate(percent = round((n/ total)*100, 1)) 
+
+rs3 <- ggplot(data = rest_service3, 
+  aes(x = state, y = percent, fill= Takeout_service)) + 
+  geom_bar(stat = "identity", width = 0.5) + 
+  scale_fill_discrete(name="Takeout service", 
+  labels=c("No takeout service", "Takeout service")) + 
+  labs(title = "% Take out service") + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  theme(legend.position="none") +  theme( axis.ticks.y=element_blank()) +  
+  theme( axis.text.y=element_blank())  + labs(y=NULL)
+
+
+grid.arrange(rs1, rs2, rs3, ncol = 3, 
+             top = "Percentage of restaurants by type of service") 
+
+#source("http://peterhaschke.com/Code/multiplot.R")
+#multiplot(rs1, rs2, rs3, cols =3)
+
+```
+
+It seems that very few operating restaurants do delivery, take-out and dine-in all at once.
+The main reason for this lack of full service offerings is predominately due to the lack of delivery service being offered across restaurants (around 20-25% of restaurants do it). However, virtually all restaurants offer take out service with the notable exception of Quebec having a much lower percentage while also simultaneously having more restaurants that are are dine-in with table service.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+#Code below is to produce a map showing where operating restaurants are within each city. 
+#Code was made as flexible as possible to account for different variables such as longitude, latitude, title name, colour of dots, data set as well as the city
+
+
+yelp_cities0 <- function(dataset, city1, long1, long2, lat1, 
+                         lat2, titlename, color1) {
+
+yelp_to1 <- subset(dataset, city == city1 & 
+  !is.na(attributes.RestaurantsPriceRange2) & !is.na(is_open) & 
+  !is.na(attributes.RestaurantsTakeOut) & 
+  !is.na(attributes.RestaurantsDelivery) & 
+  !is.na(attributes.RestaurantsTableService))
+
+sbbox <- make_bbox(lon = yelp_to1$longitude, lat = yelp_to1$latitude, f = 0.01) 
+to_map <- get_map(location = sbbox, maptype = "roadmap", scale = 2, 
+                  color="bw", zoom = 10)
+
+ggmap(to_map) +
+  geom_point(data=yelp_to1, aes(x = longitude, y = latitude), color = color1,
+  size = 1.5, alpha = 0.3) + scale_x_continuous(lim = c(long1, long2)) + 
+  scale_y_continuous(lim = c(lat1, lat2)) +  xlab('Longitude') + 
+  ylab('Latitude') + ggtitle(titlename) + guides(color=FALSE) + 
+  theme(plot.title = element_text(hjust = 0.5)) + geom_jitter()
+}
+yelp_cities0(yelp_flat1, "Toronto", -79.6, -79.2, 43.58, 43.81, 
+             "Location of restaurants in Toronto", "#fc9272")
+
+
+
+```
+
+Most of the analysis so far has been on a state level, and so I would like to delve more into analyzing restaurants or establishments in general on a city level with an emphasis on geographical distribution of restaurants across different variables. Some questions that I really want to explore are: 
+
+1) Where within each city are restaurants located? Are they evenly spread across downtown and suburban areas?
+2) And how does this vary by price range?
+3) And are higher rated restaurants more concentrated in certain parts of the city?
+4) Are noisier restaurants spread out across the city or are they mainly in the downtown core?
+5) Are alcohol service levels in restaurants consistent throughout different parts of the city?
+And lastly:
+6) Where are some good places for dinner?
+
+In this geographic analysis, I am going to focus on three cities, Toronto, Montreal and Phoenix, and this is because these three cities were among the top 3-4 cities that had the most restaurants represented within Yelp. I also briefly examine Scottsdale (which is to the northeast of Phoenix) because it might be interesting to analyze as the the city seems to have much higher restaurant prices despite its proximity.
+
+
+In Toronto, restaurants are mainly concentrated in the downtown core, and have a large concentrated presence along the main thoroughfare Yonge Street which extends all the up vertically through the centre of the map.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+yelp_cities0(yelp_flat1, "Montréal", -73.76, -73.52, 45.42, 45.6, 
+             "Location of restaurants in Montreal", "#fc9272")
+
+```
+
+In Montreal, the restaurants are even more concentrated, particularly in the downtown core and in the Plateau-Mont-Royal area just directly to the northwest of the downtown area. Restaurants outside this area are fairly spread out and are much lower in number, which partly has to do with the fact that Montreal is a much more densely populated city than Toronto.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities0(yelp_flat1, "Phoenix", -112.235, -111.95, 33.395, 33.63, 
+             "Location of restaurants in Phoenix", "#fc9272")
+```
+
+In Phoenix, restaurants seem to be spread evenly across the city in a grid-like pattern with a slightly larger concentration in the downtown southcentral square area in the middle of the map (with all four highways surrounding it). One can also see on the map that to the east are Scottdale and Tempe, both of which are separate cities represented within the Yelp data set (though not very well represented compared to Phoenix). Nonetheless, I decide to take a further look at least specifically into Scottsdale (one of the larger cities just outside Phoenix) anyway.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities0(yelp_flat1, "Scottsdale", -112, -111.85, 33.44, 33.6,
+             "Location of restaurants in Scottsdale", "#fc9272")
+```
+
+The concentration of restaurants in Scottsdale seems to be along one narrow vertical street known as Scottsale Road. The restaurants in Scottsdale are much more concentrated in specific areas than was the case with Phoenix which is just to the west of the city.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+#This function is similar the yelp_cities0 except that this code generates
+#4 plots (one for each price range) allowing us to see the distribution of 
+#the restaurants in different price ranges across the city
+
+yelp_cities <- function(dataset, city1, long1, long2, lat1, lat2, titlename, color1) {
+yelp_to1 <- subset(dataset, city == city1 & attributes.RestaurantsPriceRange2 
+                != "NA" & is_open == 1 & attributes.RestaurantsTakeOut != "NA"
+                & attributes.RestaurantsDelivery != "NA" & 
+                attributes.RestaurantsTableService != "NA" 
+                & attributes.NoiseLevel != "NA" )
+
+sbbox <- make_bbox(lon = yelp_to1$longitude, lat = yelp_to1$latitude, f = 0.01) 
+to_map <- get_map(location = sbbox, maptype = "roadmap", scale = 2, 
+                  color="bw", zoom = 10)
+
+ggmap(to_map) +
+  geom_point(data=yelp_to1, aes(x = longitude, y = latitude), color = color1,
+size = 1.5, alpha = 0.1) + scale_x_continuous(lim = c(long1, long2)) +
+  scale_y_continuous(lim = c(lat1, lat2)) +  xlab('Longitude') +
+  ylab('Latitude') +
+  ggtitle(titlename) +
+  guides(color=FALSE) + 
+  facet_wrap(~ attributes.RestaurantsPriceRange2 , nrow = 2)+ 
+  theme(plot.title = element_text(hjust = 0.5))  
+}
+
+yelp_cities(yelp_flat1, "Toronto", -79.6, -79.2, 43.58, 43.81, 
+    "Location of restaurants in Toronto by price range (1-4)", "#756bb1")
+
+```
+
+Restaurants which are in the average (2) price range are found everywhere throughout Toronto, and corresponds almost precisely with the earlier map showing restaurants across Toronto. However, inexpensive (1) price range restaurants are mainly concentrated in the downtown core and in the north-central part of the city. Other parts of the city (especially just above the downtown area) had far fewer inexpensive restaurants than in the downtown core and the north-central end along Yonge Street. 
+
+The restaurants in the  more expensive (3) price range were once again concentrated in the downtown core, but were also prevalent going north along Yonge street (the main thoroughfare that runs down the centre of the city). The priciest restaurants (4) were only to be found almost exclusively along Yonge street stretching from the waterfront lake area up to around Hwy 401 in the north-central end of the city.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+yelp_cities(yelp_flat1, "Montréal", -73.76, -73.52, 45.42, 45.6, 
+            "Location of restaurants in Montreal", "#756bb1")
+```
+
+It seems that the more expensive restaurants in the 3 range are almost as prevalent as those in the 1 price range, while those in the most expensive price category 4 are actually quite visible in the downtown core. The geographic concentration of more expensive restaurants in a particular locale is definitely higher than in Toronto.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities(yelp_flat1, "Phoenix", -112.235, -111.9, 33.395, 33.63, 
+        "Location of restaurants in Phoenix by price range (1-4)", "#756bb1")
+```
+
+Restaurants in the 1 price range are found everywhere in Phoenix as in the original Phoenix map with all restaurants across price ranges shown. Average restaurants in the 2 price range were less numerous and were mainly concentrated in the downtown core and the northern part of the city. 
+On the other hand, other than a smaller cluster in the city centre and a few restaurants spread out in the northeastern part of the city, the more expensive restaurants in the 3 price range were non-existent. The priciest (4) restaurants are found scattered throughout the city and number no more than 20.
+
+At least compared to Toronto and Montreal, there were fewer pricey restaurants relative to the total number. This kind of makes sense, as we saw earlier that by comparing percentage of restaurants by price range, Ontario (where Toronto is located) and Quebec (where Montreal is located) had far more restaurants in the 3-4 price range than in Arizona (Where Phoenix is located).
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+yelp_cities(yelp_flat1, "Scottsdale", -112, -111.85, 33.44, 33.6, 
+            "Location of restaurants in Scottsdale by price range", "#756bb1")
+```
+
+While the 1-2 price range restaurants dominated (as always), there were actually two clusters of restaurants in the more expensive (3) price range in Scottsdale concentrated in downtown Scottsdale and in Paradise Valley along Scottsdale Road. Since both Tempe and Mesa (to the southeast of Phoenix) had similar price ranges for its restaurants, this suggests that the more expensive restaurants in the Phoenix metropolitan area are found in Scottsdale. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+yelp_cities_stars<- function(dataset, city1, long1, long2, lat1, lat2, titlename, 
+                        color1) {
+yelp_to1 <- subset(dataset, city == city1 & attributes.RestaurantsPriceRange2 
+                != "NA" & is_open == 1 & attributes.RestaurantsTakeOut != "NA"
+                & attributes.RestaurantsDelivery != "NA" & 
+                attributes.RestaurantsTableService != "NA" 
+                & attributes.NoiseLevel != "NA" )
+
+sbbox <- make_bbox(lon = yelp_to1$longitude, lat = yelp_to1$latitude, f = 0.01) 
+to_map <- get_map(location = sbbox, maptype = "roadmap", scale = 2, 
+                  color="bw", zoom = 10)
+
+ggmap(to_map) +
+  geom_point(data=yelp_to1, aes(x = longitude, y = latitude), color = color1,
+size = 1.5, alpha = 0.1) + scale_x_continuous(lim = c(long1, long2)) +
+  scale_y_continuous(lim = c(lat1, lat2)) +  xlab('Longitude') +
+  ylab('Latitude') +
+  ggtitle(titlename) +
+  guides(color=FALSE) + 
+  facet_wrap(~ stars , nrow = 3)+ 
+  theme(plot.title = element_text(hjust = 0.5))  
+}
+
+yelp_cities_stars(yelp_flat1, "Toronto", -79.6, -79.2, 43.58, 43.81, 
+    "Location of restaurants in Toronto by Yelp stars", "#2b8cbe")
+
+```
+
+I conclude the bivariate plots section with a quick look at how geographic concentration of restaurants vary by Yelp stars. 
+
+Because of the large number of restaurants in the 3 to 4 star range, there is not much to be said here. However, at the extremes, 1 star and 5 star, there seem to be some degree of geographic concentration that differs from the other star ranges. Restaurants rated 1 and 1.5 tend to be more prevalent in the northwestern part of the city, while restaurants rated 5 tend to be located just to the west of the downtown core.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities_stars(yelp_flat1, "Phoenix", -112.235, -111.9, 33.395, 33.63, 
+        "Location of restaurants in Phoenix by stars", "#2b8cbe")
+```
+
+In Phoenix, what we can see immediately is that the restaurants rated between 1 to 1.5 stars are most likely in the western half (suburban) of the city, but for all other Yelp stars, restaurants could be found all over the city.
+
+So far, this geographical analysis of the location of restaurants in these cities has been interesting. More will be discussed using a greater number of variables later on.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+
+yelp_cities1 <- function(dataset, city1, long1, long2, lat1, lat2, titlename) {
+  
+  yelp_to1 <- subset(yelp_flat1, city == city1 & 
+                  attributes.RestaurantsPriceRange2 != "NA" & is_open != "NA" 
+                  & attributes.RestaurantsTakeOut != "NA" & 
+                  attributes.RestaurantsDelivery != "NA" &        
+                  attributes.RestaurantsTableService != "NA")
+  
+yelp_to2 <- subset(yelp_to1, !is.na(attributes.Alcohol))
+sbbox <- make_bbox(lon = yelp_to2$longitude, lat = yelp_to2$latitude, f = 0.01) 
+to_map <- get_map(location = sbbox, maptype = "roadmap", scale = 2, 
+                  color="bw", zoom = 10)
+  
+ggmap(to_map) +
+  geom_point(data=yelp_to2, aes(x = longitude, y = latitude, 
+                                color = attributes.Alcohol),
+                                size = 1.5, alpha = 0.3) + 
+                                scale_x_continuous(lim = c(long1, long2)) + 
+                                scale_y_continuous(lim = c(lat1, lat2)) +  
+                                xlab('Longitude') + ylab('Latitude') + 
+                                ggtitle(titlename) + 
+                                scale_color_discrete(name="Alcohol service", 
+                                  labels=c("beer+wine", "full_bar", "none")) + 
+                                theme(plot.title = element_text(hjust = 0.5))  
+}
+
+yelp_cities1(yelp_flat1, "Toronto", -79.6, -79.2, 43.58, 43.81, 
+             "Location of restaurants in Toronto")
+```
+
+
+# Bivariate Analysis
+
+### Talk about some of the relationships you observed in this part of the investigation. How did the feature(s) of interest vary with other features in the dataset?
+
+1) More expensive restaurants in higher price ranges tend to be rated more highly, however the percentage of variance explained by the effect of price on stars is negligible indicating that there are most likely many other factors that explain the average Yelp star rating that a restaurant receives.
+
+2) The review count of all Yelp-rated establishments is disproportionately represented by Nevada and Arizona, with Nevada having a much higher average number of reviews for its establishments compared with the other 8 states in the data set.
+
+3) The Canadian provinces of Quebec and Ontario along with its major cities Toronto and Montreal had the highest average price ranges for its restaurants, while Arizona along with its major cities of the Phoenix metropolitan area (Phoenix, Tempe, and Mesa) had the lowest average price ranges.
+
+4) In terms of ratings, Scottsdale in AZ and Montreal in QC had higher Yelp stars rated for its restaurants than other North American cities.
+
+5) In terms of getting the most value out of your dollar in a restaurant, the cities of the Phoenix metropolitan area (except Scottsdale) scored the highest relative to the other cities.
+
+6) Around only 10-25% of restaurants offer a full suite of dining options such as delivery, take-out and table service (dine-in). This was mainly due to the relatively low percentage of restaurants that did delivery.
+
+7) Restaurants in Toronto and montreal are concentrated mainly in the downtown core, while other cities such as Phoenix had its restaurants spread out across the city. 
+
+8) While more expensive restaurants (price range 3-4) were found in the same places as where its highest concentration was in (usually downtown core), this was not necessarily the case in the Phoenix metropolitan area (Phoenix, Scottsdale etc.), where its most expensive restaurants were in nearby Scottsdale, with the Phoenix downtown core being almost devoid of restaurants in the 3-4 price range. More expensive in the 3-4 price range were quite prevalent in Montreal (almost as many as those in the 1 price range) than compared to other cities.
+
+
+### Did you observe any interesting relationships between the other features (not the main feature(s) of interest)?
+
+1) Restaurants with lower noise levels (quiet) tend to have higher ratings as well, though for the same reasons as price range, this effect (on its own) is negligible.
+
+2) Very few restaurants required formal or dressy attire, though Quebec seemed to score just slightly higher relative to other states.
+
+
+### What was the strongest relationship you found?
+
+In terms of my geographic analysis of the 4 cities above, the strongest relationship that I found was that all restaurants regardless of price range were almost always concentrated in the downtown core or in some narrow strip outside of a central area. 
+
+
+
+# Multivariate Plots Section
+
+Moving on from looking at price ranges, let us now explore the geographical distribution of alcohol service across restaurants in Toronto. The map above shows that most full bar services are concentrated downtown, though there is a large area in the very centre of the downtown core in which either no alcohol is provided or only beer and wine is. Most places to the northwest and northeast of the downtown cluster of restaurants in the middle also did not provide alcohol services either.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities1(yelp_flat1, "Phoenix", -112.235, -111.9, 33.395, 33.63, 
+             "Location of restaurants in Phoenix")
+```
+
+In Phoenix, it seems that alcohol is offered in fewer restaurants than was the case in Toronto, and it is clear from the map above that most resturants to the south and west of interstate did not offer a full bar. Even within the centre of Phoenix, there exist large areas that do not offer alcohol or only offer beer and wine.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities1(yelp_flat1, "Montréal", -73.76, -73.52, 45.42, 45.6, 
+             "Location of restaurants in Montreal")
+
+```
+
+In Montreal, it is much harder to tell where the geographic concentration of alcohol service is within restaurants throughout the city. It seems like a massive concentration of full bar services in the downtown core, with an even mix of alcohol service levels being provided by restaurants in the peripheral areas of the city.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities2 <- function(dataset, city1, long1, long2, lat1, lat2, titlename) {
+
+yelp_to1 <- subset(yelp_flat1, city == city1 & 
+                  attributes.RestaurantsPriceRange2 != "NA" & is_open != "NA" & 
+                  attributes.RestaurantsTakeOut != "NA" & 
+                  attributes.RestaurantsDelivery != "NA" &        
+                  attributes.RestaurantsTableService != "NA")
+
+yelp_to2 <- subset(yelp_to1, !is.na(attributes.NoiseLevel))
+sbbox <- make_bbox(lon = yelp_to1$longitude, lat = yelp_to1$latitude, f = 0.01) 
+to_map <- get_map(location = sbbox, maptype = "roadmap", scale = 2, 
+                  color="bw", zoom = 10)
+
+ggmap(to_map) +
+  geom_point(data=yelp_to2, aes(x = longitude, y = latitude, 
+                                color = attributes.NoiseLevel),
+                            size = 1.5, alpha = 0.3) + 
+                            scale_x_continuous(lim = c(long1, long2)) + 
+                            scale_y_continuous(lim = c(lat1, lat2)) +  
+                            xlab('Longitude') + ylab('Latitude') + 
+                            ggtitle(titlename) + 
+                            theme(plot.title = element_text(hjust = 0.5)) + 
+                            scale_color_discrete(name="Noise levels", 
+                            labels=c("average", "loud", "quiet", "very loud")) 
+}
+yelp_cities2(yelp_flat1, "Toronto", -79.6, -79.2, 43.58, 43.81, 
+             "Location of restaurants in Toronto")
+```
+
+Next up, I wanted to see if noise levels differed between different downtown and suburban areas of Toronto. In our previous analysis of noise levels, we saw that two-thirds of restaurants were average in terms of noise levels, so it is not surprising to see average noise levels (in red) dominate throughout the city. The restaurants in the southeastern and northwestern parts of the city seem be mainly average or quiet. The rest of the city, however, seems to be sprinkled quite evenly with restaurants with all sorts of noise levels.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities2(yelp_flat1, "Phoenix", -112.23, -111.9, 33.39, 33.63, 
+             "Location of restaurants in Phoenix")
+```
+
+In the case of Phoenix, restaurants of all noise levels were evenly sprinkled throughout the city. It seems there is little to no correlation between restaurant noise levels and geographic dispersion.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities2(yelp_flat1, "Montréal", -73.76, -73.52, 45.42, 45.6, 
+             "Location of restaurants in Montreal")
+```
+
+Unlik Phoenix and Toronto, Montreal does have a few areas, particularly in the areas to the northeast and south of the downtown core, that are actually dominated exclusively by average and quiet restaurants. At least among these three cities, in general, restaurants of all noise levels seem to be sprinkled throughout the city.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities3 <- function(dataset, city1, long1, long2, lat1, lat2, titlename) {
+
+yelp_meals <- subset(dataset, city == city1 & 
+                    !is.na(attributes.RestaurantsPriceRange2) &
+                    !is.na(is_open) & !is.na(attributes.RestaurantsTakeOut) & 
+                    !is.na(attributes.RestaurantsDelivery)  & 
+                    !is.na(attributes.RestaurantsTableService) &
+                    !is.na(attributes.GoodForMeal.dinner))
+
+sbbox <- make_bbox(lon = yelp_meals$longitude, 
+                   lat = yelp_meals$latitude, f = 0.01) 
+to_map <- get_map(location = sbbox, maptype = "roadmap", scale = 2, 
+                  color="bw", zoom = 10)
+
+ggmap(to_map) +
+geom_point(data=yelp_meals, aes(x = longitude, y = latitude, 
+                                color = attributes.GoodForMeal.dinner),
+                                size = 1.5, alpha = 0.3) + 
+                                scale_x_continuous(lim = c(long1, long2)) + 
+                                scale_y_continuous(lim = c(lat1, lat2)) +  
+                                xlab('Longitude') + ylab('Latitude') + 
+                                ggtitle(titlename) + 
+                                scale_color_discrete(name="Good for dinner", 
+                                              labels=c("Not good", "Good")) + 
+                                theme(plot.title = element_text(hjust = 0.5))  
+}
+yelp_cities3(yelp_flat1, "Toronto", -79.6, -79.2, 43.58, 43.81, 
+             "Location of restaurants in Toronto")
+```
+
+In the next few plots, as a matter of personal interest, I am going to look at where places that are good for going out for dinner are located within a city. 
+
+In Toronto, the best places to find restaurants that are good for dinner are in the downtown core and along Yonge Street (the vertical street through the centre of the city that's filled with restaurants). However, in terms of the percentage of places that are for dinner, the cluster of restaurants in the northern part of the city along Yonge Street, and the downtown area close to the lake but just across from the island in the southcentral part of the city are the best places to go if one wanted to look exclusively for dinner places when going out at night. On the other hand, the northwestern part of Toronto seems to be fairly devoid of places to go out to for dinner.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+yelp_cities3(yelp_flat1, "Phoenix", -112.23, -111.9, 33.39, 33.62, 
+             "Location of restaurants in Phoenix")
+```
+
+Compared to Toronto, it seems that Phoenix has a much wider geographical dispersion of restaurants that are for good for dinner as compared to Toronto, though the north central area of the city seems to have a higher concentration than the southern and western parts of the city.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+rest_city_dinner_count <- rest_city_dinner %>%
+group_by(city)%>%
+summarise(good_for_dinner = sum(dinner)) 
+
+rest_city_count <- rest_city_dinner%>%
+group_by(city) %>%
+summarise(n = n())
+
+rest_city_dinner_count$percent <- 
+  round((rest_city_dinner_count$good_for_dinner / rest_city_count$n)*100, 1)
+rest_city_dinner_count
+
+
+```
+
+When it comes to restaurants that are good for dinner as a percentage of total number of restaurants, Toronto and Phoenix seem to be approximately the same in terms of its percentage, even though the geographical concentration of places that are good for dinner vary quite a bit.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+yelp_cities3(yelp_flat1, "Montréal", -73.76, -73.52, 45.42, 45.6, 
+             "Location of restaurants in Montreal")
+
+```
+
+Looking back to Montreal again one last time, we see that dinner places are not as prevalent as in Toronto or Phoenix. Only parts of the downtown core and in Westmount to the immediate southwest of the downtown core have high concentrations of places that are good for dinner.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+
+#Code below creates a scatterplot of ratings vs reviews across 
+#all Yelp-rated establishments, colour by open vs not open 
+
+#As per earlier reviewer suggestion, I put in geom_jitter and set alpha
+#high enough to be able to see the red dots clearly
+stars_reviews_plot <- function(dataset, titlename) {
+ggplot(aes(x = review_count, y = stars), data = dataset) + 
+  geom_point(aes(colour = factor(is_open))) +
+  scale_color_discrete(name="Operating status", breaks = c(0, 1), 
+  labels=c("Closed", "Open")) + 
+  labs(title = titlename) + labs(x = "Number of reviews") + 
+  labs(y= "Rating (in stars) from 1 to 5")  + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_x_continuous(lim = c(0, 8000)) +
+  geom_jitter(aes(colour = factor(is_open)), alpha = 0.8)
+}
+
+stars_reviews_plot(yelp_flat, 
+"Relationship betwen Yelp stars and review count")
+
+```
+
+We now step away from geographic analysis entirely and go back to looking at overall relationships between our main variables of interest, price range, review count and stars on a multivariate level.
+
+In earlier analyses, the main focus was always on operating restaurants within North America, and in the beginning of the analysis, there was not much discussion on the operating status variable, is_open, and review count was mainly looked at on a more general and geographic level.
+
+In this scatterplot above, the relationship between the number of reviews and stars given for a restaurant is quite clear. Almost all establishments that have above 1000 reviews continue to be open, while almost all of the establishments that were closed had less than 1000 reviews. We also see above that restaurants with higher review counts tend to be higher on the rating scale as virtually all establishments that had more than 1000 reviews were given a rating of at least 2.5 stars.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+rest_city_all <- subset(yelp_flat1, !is.na(attributes.RestaurantsPriceRange2) &                 
+  !is.na(attributes.RestaurantsDelivery) & 
+  !is.na(attributes.RestaurantsTableService) &
+  !is.na(attributes.RestaurantsTakeOut))
+
+stars_reviews_plot(rest_city_all, 
+"Relationship betwen Yelp stars and review count
+across North American restaurants")
+
+
+```
+
+The relationship we saw earlier between number of reviews and ratings across closed and open establishments holds true too for operating restaurants in North America.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+p_starreview <- rest_city_all %>%
+group_by(attributes.RestaurantsPriceRange2, stars) %>%
+summarise(total_by_star = sum(review_count)) %>%
+mutate(total = sum(total_by_star)) %>%
+mutate(percent = round((total_by_star/ total)*100, 1)) %>%
+mutate(percentWeight = ifelse(percent >= 20, percent * 2.5, 
+              # custom column to weight the percent for size on the plot
+                    ifelse(percent < 20 & percent >= 15, percent * 1.2, 
+                    ifelse(percent < 15 & percent >= 10, percent,
+                    ifelse(percent < 10 & percent >= 5, percent * 0.8, 1)))))
+
+ggplot(p_starreview, aes(x = attributes.RestaurantsPriceRange2, y = stars, 
+  label=percent)) + 
+  geom_point(aes(size = percentWeight), colour = "#9ECAE1", alpha = 0.7) +
+  labs(title = "Percentage of review count across Yelp stars and price range 
+       across North American restaurants") + labs(x = "Price Range") + 
+  labs(y= "Rating (in stars) from 1 to 5")  + 
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  scale_y_continuous(breaks = seq(1, 5, 0.5)) + 
+  geom_text(hjust = 0.4, vjust = 0.2, size = 4) + 
+  scale_size(range = c(1,25), guide = "none") 
+
+```
+
+When we include price range into our earlier scatterplot and have the percentage of reviews as the size of the relationship between price range and ratings, we find virtually all reviews are for restaurants that have between a 3.5-4.5 rating on Yelp, and that this is consistent across all price ranges. However, the percent of total review counts within each price range and stars combination at a Yelp star of 3 or lower declines as the price range gets higher. This is of course consistent with the line plot shown previously where the average stars given tended to go up as the price range increased.
+
+Now, it is time to do some deeper analysis into the distribution of Yelp stars across different geographies and types of establishments.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#Function below is to create a grid of the distribution of the percentage of establishments across star levels within each North American state
+stars_grid <- function(dataset, title1) {
+yelp_statestar1 <- dataset  %>%
+group_by(state, stars) %>%
+summarise(total_by_star = n()) %>%
+arrange(desc(stars)) %>%
+mutate(total = sum(total_by_star)) %>% 
+mutate(percent = round((total_by_star/ total)*100, 1)) %>%
+  # custom column to weight the percent for size on the plot
+mutate(percentWeight = ifelse(percent >= 20, percent * 2.5, 
+                    ifelse(percent < 20 & percent >= 15, percent * 1.2, 
+                    ifelse(percent < 15 & percent >= 10, percent,
+                    ifelse(percent < 10 & percent >= 5, percent * 0.8, 1)))))
+
+#Within the plot, weight the percentage of ratings as the size for a particular rating at increments of 0.5, set an alpha value of 0.5 to create some transparency, and adjust the label text for percent to be centered on each circle
+
+ggplot(yelp_statestar1, aes(x = state, y = stars, label = percent)) + 
+  geom_point(aes(size = percentWeight * 1.75, colour = stars), alpha = 0.5) + 
+  geom_text(hjust = 0.4, vjust = 0.2, size = 4) + 
+  scale_size(range = c(1,25), guide = "none") + 
+  scale_color_gradient(low = "yellow", high = "red") + 
+  labs(title = title1, x = "state", 
+       y = "Percentage weight of ratings across a 1-5 scale") + 
+  scale_y_continuous(breaks = seq(1, 5, 0.5)) + 
+  theme(plot.title = element_text(hjust = 0.5)) 
+}
+
+stars_grid(yelp_flat1, "A grid of the distribution of Yelp stars by state")
+```
+
+It seems like across all Yelp establishments (both open and closed, whether a restaurant or not), Arizona and Nevada seem to have a much larger percentage of their establishments being rated at 4 stars or higher, and this is more pronounced at 5 stars. 
+
+Our main establishments of interest, however, are for operating restaurants, and not necessarily just any type of establishment, as Yelp-rated establishments could include nail salons, spas, community centres as described earlier at the beginning of this project.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+stars_grid(rest_0, "A grid of the distribution of Yelp stars by state
+           for North American restaurants ")
+```
+
+When we only look at operating restaurants, we find that the story changes quite a bit. Instead of having Arizona and Nevada dominate the rankings in the 4.5 to 5 stars range, we see that the distribution of stars across all states is relatively the same and centred around 3.5 to 4 stars. It is interesting to note that Quebec seems to have a far higher percentage of restaurants in higher star ranges than other states such as Arizona or South Carolina. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Call the avg1 function to calculate the average stars by state
+avg1(rest_0, state, stars)
+```
+
+This can be seen in the average stars by state chart below.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#The function below is to create a subset of the data set for each noise level as represented by var1, then it takes this new subset and groups by the price range and calculates the average number of Yelp stars for each price range of 1, 2, 3, and 4.
+
+rest_0_noise <- function(dataset, var1) {
+ 
+rest_0_noise <-  subset(dataset, !is.na(attributes.RestaurantsPriceRange2) & 
+  is_open == 1 & !is.na(attributes.RestaurantsTakeOut) & 
+  !is.na(attributes.RestaurantsDelivery) & 
+  !is.na(attributes.RestaurantsTableService) & attributes.NoiseLevel == var1)
+  
+rest_p_noise <- rest_0_noise %>%
+group_by(attributes.RestaurantsPriceRange2) %>%
+summarise(n=mean(stars))
+}
+
+#4 separate datasets are created for each instance of noise level by calling the function created earlier
+rest_p_quiet <- rest_0_noise(yelp_flat1, "quiet")
+rest_p_avg <- rest_0_noise(yelp_flat1, "average")
+rest_p_loud <- rest_0_noise(yelp_flat1, "loud")
+rest_p_veryloud <- rest_0_noise(yelp_flat1, "very_loud")
+
+#This plots each of the 4 lines onto one plot to show how stars and price range differ across different noise levels
+ggplot() + 
+  geom_line(data = rest_p_quiet, aes(x = attributes.RestaurantsPriceRange2, 
+                                    y = n, colour = "quiet"), size = 0.5) +
+  geom_line(data = rest_p_avg, aes(x = attributes.RestaurantsPriceRange2, 
+                                  y = n, colour  = "average"), size = 0.5) +
+  geom_line(data = rest_p_loud, aes(x = attributes.RestaurantsPriceRange2, 
+                                   y = n, colour  = "loud"), size = 0.5) + 
+  geom_line(data = rest_p_veryloud, aes(x = attributes.RestaurantsPriceRange2, 
+                                y = n, colour  = "very loud"), size = 0.5) +
+  xlab("Price range") +
+  ylab("Stars") + 
+  scale_colour_manual(name = "Noise level", 
+                      values=c("red", "blue", "green", "brown")) + 
+  labs(title = "Relationship between stars and price range 
+       across different noise levels") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+Aside from geography, there are also other variables such as noise levels and alcohol service that I would like to explore in terms of its relation to our main variables of interest, price range and stars.
+
+Earlier, we saw that whenever noise levels were higher, the average number of Yelp stars for a restaurant was lower, resulting in a clear downward relationship between the two variables. However, when we create a multivariate plot to group this relationship by price range, we find that across each price range, a restaurant that is louder will always have a lower average rating (though the effect is minor between average versus quiet noise levels). The only notable exception is at price range 3, where a restaurant with an average noise level does slightly better than those at a quiet noise level.
+
+Also, it is interesting that at the most expensive price range 4, the average stars for a very loud restaurant decreases compared to those at the price range 3, while for a quiet restaurant, the increase in the average number of stars from price range 3 is much greater than in previous price ranges. As a result, the difference in average stars given for a very loud versus a quiet restaurant at the most expensive price range 4 is a difference of almost 1 whole star!
+
+Next, let us perform a similar analysis across alcohol service levels.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+#The function below is to create a subset of the data set for each alcohol service as represented by var1, then it takes this new subset and groups by the price range and calculates the average number of Yelp stars for each price range of 1, 2, 3, and 4.
+
+rest_0_alcohol<- function(dataset, var1) {
+ 
+rest_0_alcohol <-  subset(dataset, attributes.RestaurantsPriceRange2 != "NA" &
+  is_open == 1 & !is.na(attributes.RestaurantsTakeOut) & 
+  !is.na(attributes.RestaurantsDelivery) & 
+  !is.na(attributes.RestaurantsTableService) & attributes.Alcohol == var1)
+  
+rest_p_alcohol <- rest_0_alcohol %>%
+group_by(attributes.RestaurantsPriceRange2) %>%
+summarise(n=mean(stars))
+}
+
+#4 separate datasets are created for each instance of noise level by calling the function created earlier
+rest_p_none <- rest_0_alcohol(yelp_flat1, "none")
+rest_p_beerwine <- rest_0_alcohol(yelp_flat1, "beer_and_wine")
+rest_p_fullbar <- rest_0_alcohol(yelp_flat1, "full_bar")
+
+#This plots each of the 4 lines onto one plot to show how stars and price range differ across different noise levels
+ggplot() + 
+  geom_line(data = rest_p_none, aes(x = attributes.RestaurantsPriceRange2, 
+                                    y = n, colour = "none"), size = 0.5) +
+  geom_line(data = rest_p_beerwine, aes(x = attributes.RestaurantsPriceRange2, 
+                               y = n, colour  = "beer + wine"), size = 0.5) +
+  geom_line(data = rest_p_fullbar, aes(x = attributes.RestaurantsPriceRange2, 
+                                  y = n, colour  = "full bar"), size = 0.5) + 
+  xlab("Price range") +
+  ylab("Stars") + 
+  scale_colour_manual(name = "Alcohol service level", 
+                      values=c("purple", "orange", "yellow")) + 
+  labs(title = "Relationship between stars and price range
+      across different alcohol service levels") + 
+  theme(plot.title = element_text(hjust = 0.5))
+
+```
+
+The story behind alcohol service levels seem to be a different than was the case for noise levels. Restaurants with greater alcohol service do not necessarily have more Yelp stars on average than those with less alcohol service. As one can see on the plot below, restaurants that only offer beer and wine instead of a full bar almost always consistently outperform restaurants with a full bar alcohol service and this difference becomes much greater at the highest price range 4. However, in the case of more expensive 3-4 price range restaurants, restaurants that offer at least beer and wine outperform restaurants that do not provide alcohol by 1 whole star!
+
+
+Now, we have analyzed so many different relationships between price range and stars. I wonder which of the variables we analyzed earlier have the most impact on the Yelp stars an operating restaurant in North America might receive. We are going to do this by creating a linear model that takes into account all the other variables we explored as independent variables with stars as the dependent variable.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+
+rest_lm_stars <- subset(yelp_flat1, !is.na(is_open) & 
+  !is.na(attributes.RestaurantsAttire) & 
+  !is.na(attributes.RestaurantsGoodForGroups) & 
+  !is.na(attributes.NoiseLevel) & !is.na(attributes.RestaurantsPriceRange2) &
+  !is.na(attributes.RestaurantsTakeOut) & 
+  !is.na(attributes.RestaurantsDelivery) & 
+  !is.na(attributes.RestaurantsTableService))
+
+stars_lm <- lm(stars ~ attributes.RestaurantsPriceRange2 + 
+  attributes.NoiseLevel + attributes.Alcohol + review_count + is_open + 
+  attributes.RestaurantsGoodForGroups + attributes.RestaurantsAttire + 
+  attributes.RestaurantsDelivery  + attributes.RestaurantsTakeOut + 
+  attributes.RestaurantsTableService, data = subset(rest_lm_stars))
+
+summary(stars_lm)
+
+```
+
+As we had seen in some of the earlier regressions and/or analyses, increased price ranges, being open, having no alcohol service or a full bar, having a higher review count and having lower noise levels were correlated with a higher rating. Other new relationships include the fact that we never looked at in its relationship to Yelp stars were restaurant dining options, in which having table service correlated highly with stars, though having takeout apparently is not.
+
+Nonetheless, the percentage of variance (6.5%) explained by this model is not very high, and this suggests that many other variables such as food quality, type of cuisine, recommendation from a friend were etc. could help to improve this model.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+price_lm <- lm(attributes.RestaurantsPriceRange2 ~ stars + 
+  attributes.NoiseLevel + attributes.Alcohol + review_count + is_open + 
+  attributes.RestaurantsGoodForGroups + attributes.RestaurantsAttire + 
+  attributes.RestaurantsDelivery  + attributes.RestaurantsTakeOut + 
+  attributes.RestaurantsTableService, data = subset(rest_lm_stars))
+
+summary(price_lm)
+
+```
+
+On the other hand, when a linear model is built with the independent variable being stars and it is used to predict the price range of a restaurant, we find that the variables chosen do a fairly good job at predicting how expensive a restaurant will be, as over 46% of the variance in the model is explained by these variables alone. 
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+
+yelp_open1 <- subset(yelp_flat, is_open == 1)
+yelp_stars(yelp_open1, 'Distribution of Yelp stars across operating establishments')
+
+
+```
+# Multivariate Analysis
+
+###  Talk about some of the relationships you observed in this part of the investigation. Were there features that strengthened each other in terms of looking at your feature(s) of interest?
+
+1) In Toronto and Phoenix, restaurants of varying noise levels are all over the city.
+
+2) In terms of alcohol service, the suburban areas of Toronto and Phoenix had less alcohol service in terms of full bar or beer and wine than in the downtown core while for Montreal, full bar alcohol service was virtually everywhere in the city.
+
+3) Places that were good for dinner were found all over Phoenix, while in Toronto, the highest concentrations were found in the downtown core and in the central thoroughfare, and in Montreal, dinner places were onlly found in the downtown core.
+
+4) Holding price range constant, between 80-90% of restaurants were rated between 3.5 to 4.5 stars.
+
+5) Restaurants that had noisier atmospheres had lower average stars than quieter ones and this was true across all price ranges.
+
+
+### Were there any interesting or surprising interactions between features?
+
+One thing that I found interesting was that restaurants that only served beer and wine tended to do better in terms of Yelp stars than those that had full bar alcohol service.
+
+
+### OPTIONAL: Did you create any models with your dataset? Discuss the strengths and limitations of your model.
+
+I created two linear models that examined the impact of the variables I discussed earlier on price range and stars. The R-squared for the linear model that predicted stars was only around 6%, meaning that were far more features that could have been better for the model even if the relationships in the model were found to be mostly statistically significant and correlated well with trends we saw earlier in the plots analysis. However, the amount of variance explained by the linear model on price range performed substantially better with 46% of variance being explained by the model.
+
+
+# Final Plots and Summary
+
+
+### Description One: 
+
+The majority of operating establishments in the plot below were rated between 3 to 5 stars, with a peak at 4 stars where almost 20% of establishments achieved this rating.
+Very few establishments (less than 10%) that remained operating were rated between 1 to 2 stars.
+
+### Plot One:
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+ggplot(rest_city_value, aes(reorder(city, -value), value), label=value_type) + 
+  geom_bar(stat='identity', aes(fill=value_type), width=.5)  +
+  scale_fill_manual(name="value", 
+                    labels = c("Above Average", "Below Average"), 
+                    values = c("above"="#00ba38", "below"="#f8766d")) + 
+  labs(subtitle="Normalised Yelp value (ratings) for North American cities", 
+       title= "Comparison of restaurant value across major North American cities") + labs(x="city") +
+  coord_flip()
+```
+
+### Description Two:
+
+We defined value earlier as stars divided by price range, which gives us the amount of value that we derive for a given price that we pay for our food at an operating restaurant. In the graph above, we find that when it comes to getting the most "bang for your buck", the cities of the Phoenix metropolitan area (except for Scottsdale) are the best for extracting maximum value in your dining experience for the amount of money that you pay.
+
+
+### Plot Two:
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+stars_grid(rest_0, "A grid of the distribution of Yelp stars by state
+           for North American restaurants ")
+```
+
+### Description Three:
+
+Across all North American states, it seems that very few restaurants are able to get a perfect 5 star rating. That being said, the number of restaurants that were rated 2 stars or less were also negligible as well. Almost all restaurants are clustered between 3 stars to 4.5 stars. 
+
+### Plot 3:
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 5, fig.width = 7.5}
+#This is to create a break so that the reflection section appears beneath the plot.
+```
+
+# Reflection
+
+The Yelp academic data set on businesses contain information on over 150 thousand establishments across 101 variables within North America and beyond. Although the analysis was done on the whole data set from time to time, I was mainly interested in operating restaurants within North America which brought this number down to around 26-27 thousand establishments. But even so, I was able to perform a wide variety of analyses in terms of exploring the relationship between price, Yelp stars, review count among many other variables across a wide range of geographies on a state and city level. In this process, I created many plots and maps, calculated summary statistics and employed linear models to explore this rich and informative data set.
+
+There was a clear trend between price range and stars, with restaurants in higher price ranges generally receiving much higher Yelp star ratings. That being said, having a higher Yelp star rating did not necessarly translate into value, as we saw that cities such as Montreal which scored highly on both indicators ended performing the worst compared to other cities when it came to the value per dollar spent. One other important point is that restaurants in more expensive price ranges tend to be located in downtown areas, though in the case of the Phoenix metropolitan area, these were found mainly in Scottsdale (a suburb to the east). 
+
+Another interesting insight is that across all price ranges, noisier restaurants tended to be rated more poorly than those that were quieter. Restaurants of all noise levels were distributed throughout the cities analyzed, and there was generally not one area where you could find restaurants of a specific noise level.
+
+Although I expected many establishments to have low review counts, I was quite surprised to find that the median number of reviews per establishment was so low, and that the dispersion of review counts across different establishments was so large. Something that did not surprise me, however, was that almost all closed establishments tended to have a lower review count. Finally, one last thing that I found interesting was that restaurants that served only beer and wine tended to be rated higher than those that had full bar service.
+
+One of the biggest limitations of the data set was the lack of data from other North American cities/states. It is not known why or how these cities were chosen, and it is not clear if every establishment in these cities is covered in the data set. The variables present in this data set also skewed heavily towards the analysis of restaurants, so that other Yelp-rated establishments such as spas, salons and hotels were harder to analyze. It would be interesting to have a much larger selection of cities/states to choose from, and to be able to test the linear models above to see if the relationships end up becoming stronger or weaker with a richer data set.
+
