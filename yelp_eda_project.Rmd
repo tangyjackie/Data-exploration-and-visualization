@@ -1,6 +1,6 @@
 ---
 title: "Yelp Business Data Exploration"
-output: html_notebook
+output: rmarkdown::github_document
 author: "Jackie Tang"
 ---
 ```{r echo=FALSE, message=FALSE, warning=FALSE, packages}
