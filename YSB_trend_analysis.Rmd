@@ -1,0 +1,348 @@
+---
+title: "An analysis of trends in the distribution of individuals exiting YSB programs over time"
+author: "Jackie Tang"
+date: "March 8th, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+This document provides an illustration of the distribution of individuals exiting each active YSB program across different program categories (housing, youth justice, mental health, and community services) from 1998 to 2017. The start year was chosen as such because data before 1998 is insignificant for many programs, as most programs at YSB in this data set were only first established in the late-1990s. These illustrations show two indicators: number of individuals exiting a program and the median time an individual had spent in each program.
+
+When creating these illustrations, there were a number of observations in which the exit date for a program was unknown for an individual, and so the average number of days spent in that program for any given year was added to the entry date in order to arrive at the new exit date. This ensures that program categories with relatively more null values for exit dates are properly accounted for in the data.
+The result is that while the median time spent in each program does not change, the number of individuals exiting a particular program across time does change, and this does have an impact on the distribution of the number of individuals across different programs as certain programs may have had more NA values relative to other programs.
+
+Below is an chart showing the percentage of records with missing exit dates for each program aggregated over time. There are 51443 observations for which fall under active programs and within the period of 1998 and 2007, and of these, 7765 observations have null values for the exit date. The null values represent about 15% of the total data set.
+
+The issue with missing values does not seem to a problem for most program categories. However, it seems that youth employment and youth engagement has an extremely high percentage of missing values and as such, youth engagement cannot be analyzed since all values are null. However, it may still be possibe to analyze youth employment a bit further.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 8, fig.width = 12}
+library(dplyr)
+library(ggplot2)
+library(magrittr)
+library(xts)
+library(streamgraph)
+library(sqldf)
+
+
+full_file <- read.csv("C:/Users/Jackie/Documents/YSB/mergedDataV1.csv")
+full_file$entry_year <- substring(full_file$EntryDate, 1, 4)
+full_file$exit_year <- substring(full_file$ExitDate, 1, 4)
+full_file$diff_days <- difftime(as.POSIXct(full_file$ExitDate), as.POSIXct(full_file$EntryDate, tz="UTC"), units="days")
+
+null_values1 <- full_file
+null_values1$entry_year <- substring(null_values1$EntryDate, 1, 4)
+null_values1$exit_year <- substring(null_values1$ExitDate, 1, 4)
+null_values1$diff_days <- difftime(as.POSIXct(null_values1$ExitDate), as.POSIXct(null_values1$EntryDate, tz="UTC"), units="days")
+
+
+null_values1$is_null <- ifelse(is.na(null_values1$ExitDate), 1, 0)
+null_values1$is_null <- as.numeric(null_values1$is_null)
+
+
+null_values2 <- null_values1 %>%
+    group_by(ProgramCategory) %>%
+    summarise(null_percent = round(sum(is_null)/n()*100, 2))
+
+ggplot(null_values2, aes(x = ProgramCategory, y = null_percent)) + 
+geom_bar(stat = "identity", fill = 'lightblue') + labs(x='Program') +
+  labs( y = 'Percentage null values') +
+ # scale_x_continuous(breaks = seq(1, 5, 0.5)) +
+  #scale_y_continuous(lim = c(0, 25))+
+  theme(plot.title = element_text(size = 16, hjust = 0.5), axis.title=element_text(size=14), axis.text=element_text(size=14))  +
+ geom_text(aes(label=null_percent), position = position_dodge(width = 1), 
+           vjust = -0.5, size = 4) +
+  labs(title =  "Percentage of null values for exit date across program categories")
+
+```
+
+
+Looking at the histogram below, we see that the youth employment and youth engagement program categories only have a few records and are insignificant in our analysis. Combined with the fact that the exit dates for youth in these program categories were almost non-existent, only these four program categories will be looked at: Community Services, Housing, Mental Health and Youth justice.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 8, fig.width = 12}
+#Create a plot showing the percentage of individuals in each program category compared to the total number of individuals across all programs
+
+
+null_values_program1 <- null_values1 %>%
+    group_by(ProgramCategory) %>%
+    summarise(total_by_program = n()) %>%
+    mutate(total = sum(total_by_program)) %>% 
+    mutate(percent = round((total_by_program / total)*100, 2))
+
+ggplot(null_values_program1, aes(x = ProgramCategory, y = percent)) + 
+geom_bar(stat = "identity", fill = 'purple') + labs(x='Program Category') +
+  labs( y = 'Percent of total observations') +labs(title = 'Distribution of observations across all programs categories') + 
+  scale_y_continuous(lim = c(0, 50))+
+  theme(plot.title = element_text(size = 16, hjust = 0.5), axis.title=element_text(size=14), axis.text=element_text(size=14))  +
+ geom_text(aes(label=percent), position = position_dodge(width = 1), 
+           vjust = -0.5, size = 4) 
+
+
+
+```
+
+
+Each plot below is grouped by a program category, and so one can visualize the relative importance of a program within each category.
+The plots showing the numbers of youth leaving a program across different years are also interactive, allowing readers to hover over each year for each program to see the values underlying the data. However, it should be noted, that for some programs, the numbers are so insignificant that it may not be easy to hover over such a program over time. That being said, for these programs, there is a Shiny app that has been created (in a separate section) that looks at the actual number of youth exiting each program by year.
+
+The plot below shows the flow of the distribution of the number of people leaving each program by year across different programs. An immediate noticeable trend is that among housing programs, virtually all people that exited between the years of 1998 and 2004 were from the women's emergency shelter, but starting in 2006, there is a dramatic increase in the number of individuals exiting the crisis residential program as well as an increase in the number of individuals exiting the men's emergency shelter programs. This is accompanied by a virtual stop to the numbers exiting the women's emergency shelter.
+
+However, by 2010, the numbers exiting the women's shelter increases again with a corresponding decrease in those exiting the men's program, and these numbers along with those exiting the crisis residential programs remain stagnant up until 2017.
+
+Another major spike occurs in 2015 in which large numbers of individuals exit a newly formed trusteeship program though this subsequently declines in 2016 with perhaps a major shift to another more general trusteeship program by 2017.
+
+Overall, aside from a few major spikes in the number of individuals exiting in 2004, 2008, and in 2015, the total number of individuals exiting all housing programs actually remain fairly constant over time averaging around 550 individuals per year since the early-2000s.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 8, fig.width = 12}
+
+Program_selection <- function (category, title_name, color1, interpolate_type) {
+dd1 <- subset(full_file, diff_days >= 0 & Active.y == 1 & ProgramCategory == category )
+dd1$entry_year <- substring(dd1$EntryDate, 1, 4)
+dd1$exit_year <- substring(dd1$ExitDate, 1, 4)
+
+
+#first filter for records where exit_date is NA
+na1 <- subset(dd1, is.na(ExitDate))
+#filter for records where there are no NA values
+na2 <- subset(dd1, !is.na(ExitDate))
+
+na1$EntryDate <- as.Date(na1$EntryDate, tz="UTC")
+na1$ExitDate <- as.Date(na1$ExitDate, tz="UTC")
+na2$EntryDate <- as.Date(na2$EntryDate, tz="UTC")
+na2$ExitDate <- as.Date(na2$ExitDate, tz="UTC")
+
+
+dd2<- dd1 %>%
+group_by(ProgramCategory, ProgamSubCategory, Program, exit_year)%>%
+summarise(mean = mean(diff_days))
+dd2$mean <- as.numeric(dd2$mean)
+dd2$entry_year = dd2$exit_year
+
+
+new_days <- "select t1.ProgramCategory, t1.ProgamSubCategory, t1.Program, t1.EntryDate, EntryDate + mean as ExitDate1 from na1 t1, dd2 t2 on t1.entry_year = t2.entry_year and t1.Program = t2.Program"
+
+new_days1 <- sqldf(new_days, stringsAsFactors = FALSE)
+new_days1$ExitDate1 <- as.Date(new_days1$ExitDate1)
+new_days1$ExitDate <- new_days1$ExitDate1 
+new_days1$diff_days <- difftime(as.POSIXct(new_days1$ExitDate), as.POSIXct(new_days1$EntryDate, tz="UTC"), units="days")
+new_days1$entry_year <- substring(new_days1$EntryDate, 1, 4)
+new_days1$exit_year <- substring(new_days1$ExitDate, 1, 4)
+
+
+#Keep only the variables below
+myvars1 <- c("ProgramCategory", "ProgamSubCategory","Program", "EntryDate", "ExitDate", "diff_days", "entry_year", "exit_year")
+new_days1 <- new_days1[myvars1]
+dd1a <- na2[myvars1]
+
+#Now add new_days1 (whose NA values have been replaced) to the data set na2 which does not have any NA values for ExitDate
+#First select only the variables Program, EntryDate
+
+avg_days_program <- rbind(dd1a, new_days1)
+
+
+#Next task is to look at numbers of people that left program per month or year over time for each program
+avg1 <- subset(avg_days_program, exit_year <= 2017 & exit_year >= 1998)
+avg1$exit_year <- as.numeric(avg1$exit_year)
+avg1$exit_year <- as.Date(avg1$exit_year)
+
+count1 <- avg1%>%
+  group_by(Program, exit_year) %>%
+  summarise(count = n()) %>%
+  mutate(count = round(as.numeric(count), 0)) %>%
+  mutate(exit_year = gsub(",", "", as.numeric(exit_year))) %>%
+  streamgraph(key = "Program", value = "count", date = "exit_year", scale = "continuous", offset = "zero", interpolate = interpolate_type, interactive=TRUE) %>%
+  sg_axis_x(10, "exit_year", "")  %>%
+  sg_fill_brewer(color1)
+
+count2 <-  sg_title(count1, title = title_name) 
+count2 }
+
+Program_selection("Housing", "Number of people exiting housing programs across time", "Spectral", "cardinal")
+
+```
+
+
+
+In terms of youth justice programs, the distribution of individuals exiting different youth justice programs remain fairly constant over time as almost all the programs featured under this category existed in 1998. The only major trend of note is the large increase in the number of individuals leaving YSB's detention programs in 2009 jumping from less than 80 to around 200, though this number does slowly decline over time to just under 120 by 2017.
+That being said, the detention program is not the only one to decline over time, virtually all other programs in the youth justice category decline slowly over time with a notable drop between 2016 and 2017.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 8, fig.width = 12}
+
+Program_selection("Youth Justice", "Number of people exiting youth justice programs across time", "Set3", "cardinal")
+
+```
+
+
+
+Other than the initial jump in the numbers exiting community services programs such as with the downtown drop-in and long-term programs (mainly due to the new establishment of these programs in prior years), the addition of the intake, outreach, therapy, and after care programs add dramatically to the number of youth exiting these programs (almost all from the intake) starting around 2006. There seems to be a more equitable distribution of youth exiting different programs between the years of 2009 and 2011 when the YFCS- Assigned to worker program is first established. It's also interesting to note the almost virtual collapse in the number of youth leaving the downtown drop-in programs while the number of those leaving the the YFCS - Assigned to worker program correspondingly increases to match a good portion of that drop. Nonetheless, the number of youth leaving across all community services programs decrease dramatically starting in 2015.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 8, fig.width = 12}
+
+Program_selection("Community Services", "Number of people exiting community service programs across time", "YlGnBu", "cardinal")
+
+```
+
+
+
+Unlike other program categories, the mental health programs at YSB had a much more recent start. It was not until around 2011 with the first youth exiting the walk-in programs that the rise of mental health programs at YSB became much more prominent. This trend is further exemplified by the massive increase in the numbers exiting the mobile crisis programs in 2015, causing mental programs in that year to account for more than half of all individuals exiting YSB programs across all categories. Though there is a noticeable plunge to almost zero in the numbers exiting the mobile crisis program in 2016, these numbers begin to pick up again in 2017, while the walk-in program declines in relative importance.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 8, fig.width = 12}
+
+Program_selection("Mental Health", "Number of people exiting mental health programs across time", "PRGn", "cardinal")
+```
+
+
+
+The heat maps below show the median number of days spent across different housing programs. The median time spent across programs varies significantly (several days to several thousand days), and so the scales will show less colour variation for programs with a much lower median time spent in a program even though the percentage difference across years may be quite substantial. This was mitigated somewhat by eliminating outliers that were outside two standard deviations.
+
+Although it seems that more individuals are exiting housing programs, the median amount of time spent in them seems to be on a slight increase in most programs with a few spikes and plunges over time. The emergency shelters, trusteeship programs along with the Queen Mary and Carruthers housing programs seem to have been the most time-consuming in recent years, but of these programs, only the women's emergency shelter and trusteeship programs had significant numbers exiting the program as a proportion of total numbers.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 8, fig.width = 12}
+
+library(dplyr)
+library(ggplot2)
+library(magrittr)
+library(xts)
+library(shiny)
+library(ggthemes)
+library(sqldf)
+
+full_file <- read.csv("C:/Users/Jackie/Documents/YSB/mergedDataV1.csv")
+
+
+Program_selection1 <- function (category, title_name) {
+full_file$diff_days <- difftime(as.POSIXct(full_file$ExitDate), as.POSIXct(full_file$EntryDate, tz="UTC"), units="days")
+
+
+full_file$entry_year <- substring(full_file$EntryDate, 1, 4)
+
+full_file$exit_year <- substring(full_file$ExitDate, 1, 4)
+
+
+dd1 <- subset(full_file, diff_days >= 0 & Active.y == 1 & ProgramCategory == category)
+dd1$entry_year <- substring(dd1$EntryDate, 1, 4)
+
+dd1$exit_year <- substring(dd1$ExitDate, 1, 4)
+
+
+#add mean number of days to the entry_date to fill in NA values for exit year, filter conditions such that entry_year is between 1997 and 2016 first
+
+#find avg no. of days one spends in program based on entry year (not exit year like before), and add those number of days to the entry year to arrive at the new exit_date and new hence new exit_year
+#However, doing this does not really work well because for records where the exit_date is not known, you would not be able to find the mean number of days in which they spent in the program because if you did, you would already know the exit_date!
+
+
+#first filter for records where exit_date is NA
+na1 <- subset(dd1, is.na(ExitDate))
+#filter for records where there are no NA values
+na2 <- subset(dd1, !is.na(ExitDate))
+
+na1$EntryDate <- as.Date(na1$EntryDate, tz="UTC")
+na1$ExitDate <- as.Date(na1$ExitDate, tz="UTC")
+na2$EntryDate <- as.Date(na2$EntryDate, tz="UTC")
+na2$ExitDate <- as.Date(na2$ExitDate, tz="UTC")
+
+
+dd2<- dd1 %>%
+group_by(ProgramCategory, ProgamSubCategory, Program, exit_year)%>%
+summarise(median = median(diff_days))
+dd2$mean <- as.numeric(dd2$median)
+dd2$entry_year = dd2$exit_year
+
+
+
+new_days <- "select t1.ProgramCategory, t1.ProgamSubCategory, t1.Program, t1.EntryDate, EntryDate + mean as ExitDate1 from na1 t1, dd2 t2 on t1.entry_year = t2.entry_year and t1.Program = t2.Program"
+
+new_days1 <- sqldf(new_days, stringsAsFactors = FALSE)
+new_days1$ExitDate1 <- as.Date(new_days1$ExitDate1)
+new_days1$ExitDate <- new_days1$ExitDate1 
+new_days1$diff_days <- difftime(as.POSIXct(new_days1$ExitDate), as.POSIXct(new_days1$EntryDate, tz="UTC"), units="days")
+new_days1$entry_year <- substring(new_days1$EntryDate, 1, 4)
+new_days1$exit_year <- substring(new_days1$ExitDate, 1, 4)
+
+
+#Keep only the variables below
+myvars1 <- c("ProgramCategory", "ProgamSubCategory","Program", "EntryDate", "ExitDate", "diff_days", "entry_year", "exit_year")
+new_days1 <- new_days1[myvars1]
+dd1a <- na2[myvars1]
+
+#Now add new_days1 (whose NA values have been replaced) to the data set na2 which does not have any NA values for ExitDate
+#First select only the variables Program, EntryDate
+
+avg_days_program <- rbind(dd1a, new_days1)
+
+
+#Next task is to look at numbers of people that left program per month or year over time for each program
+avg1 <- subset(avg_days_program, exit_year <= 2017 & exit_year >= 1998 & diff_days < 2*sd(diff_days))
+avg1$diff_days <- as.numeric(avg1$diff_days)
+
+
+median1 <- avg1%>%
+  group_by(Program, exit_year) %>%
+  summarise(median = median(diff_days)) %>%
+  mutate(median = round(as.numeric(median), 0))
+
+colour1 <- c("darkslateblue", "green", "yellow", "red")
+ggplot(median1, aes(exit_year, Program )) +
+  geom_tile(aes(fill = median), color = "white")  + theme_tufte(base_family="Helvetica") +
+  scale_fill_gradientn(colours = colour1) +
+   #scale_fill_viridis(name="diff_days") +
+#  scale_fill_gradient(low = "darkslateblue", high = "yellow") + 
+  ylab("List of programs") +
+  xlab("Year") +
+  theme(legend.title = element_text(size = 10),
+        legend.text = element_text(size = 12),
+        plot.title = element_text(size=16),
+        axis.title=element_text(size=14,face="bold"),
+        axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(fill = "Days in program") +
+  labs(title = title_name)
+}
+
+Program_selection1("Housing", "Median number of days spent in housing programs")
+
+```
+
+
+There seems to have been a substantial increase in the number of mental health programs being added in 2012. With the exception of a few programs such as the YSB-MH Navigation, YSB-YOUT-IT and YSB-Section 23 - Educatif programs, it does not seem that individuals stay longer than 250 days in these newly established programs.
+
+Of the more established programs, the Wraparound and mobile crisis programs are the most time consuming, with the mobile crisis program having by far the most youth exiting in recent years.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 8, fig.width = 12}
+
+Program_selection1("Mental Health", "Median number of days spent in mental health programs")
+
+```
+
+
+Most youth do not spend too much time in the majority of youth justice programs, though there does seem to be an increase in the amount of time being spent in the YJ anger management program in recent years.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 8, fig.width = 12}
+
+Program_selection1("Youth Justice", "Median number of days spent in youth justice programs")
+
+```
+
+
+Looking at the community services programs, the average amount of time across each individual program and year is fairly stagnant. The only real exception seems to be in 2012 when the amount of time spent in the drop-in and drop-in aftercare (no one exited the program that year) programs drops substantially and then increases dramaticaly from 2013 onwards.
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, fig.height = 8, fig.width = 12}
+
+Program_selection1("Community Services", "Median number of days spent in community services programs")
+
+```
+
+
+For more information regarding the specific actual numbers of people exiting these programs across time, please refer to the links to the two R Shiny apps posted on Basecamp. Those apps do not replace null values for the exit date by adding the average time spent in a program for that year to the entry date. This is to give a more accurate picture of the actual numbers of people that left the program as opposed to what we think may be the real number that left.
