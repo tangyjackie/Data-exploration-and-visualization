@@ -9,3 +9,5 @@ There are comprehensive exploratory data analyses (EDA), specific projects done 
 For confidentiality reasons, the actual data and visualizations may not be shown.
 
 Coding languages used in this repo may include Python, R, d3.js.
+
+# Please scroll down in the branch drop-down box in the upper-left of this tab in order to see the projects that I have worked on.
