@@ -9,7 +9,7 @@ This analysis is located in ysb_trend_analysis.RMD.
 
 
 
-I also developed 2 R Shiny apps (bubble plots) that allows them interactively filter by year and program category as an additional tool to show to their clients.
+I also developed 2 R Shiny apps (bubble plots) that allows the user to interactively filter by year and program category as an additional tool to show membership and engagement trends across different program categories to their clients.
 
 The R shiny app code used to generate the visualizations are located in ysb_count.R and ysb_avg_time.R.
 This code can also be used as a template to create interactive ggplot2 visualizations within an R Shiny app, and can be applied to any data set simply by modifying the variable names and the imported data sets.
