@@ -6,4 +6,5 @@ Because this data set is rather large, the concentration of the analysis in this
 covered in the data set. The data set is only a sample of Yelp's vast treasure trove of data, but it does give some detailed insights into
 the perceptions behind most business establishments.
 
+Please see yelp_eda_project1.md for the complete analysis.
 
